@@ -230,8 +230,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private LinearGradient cardScrim;
     private Shader lightGradient;
 
-    // Shelf
+    // Shelf: devices switched on behind an HDMI input (a PS5 that isn't asleep) first, then the apps.
     private List<HomeApps.Item> shelf = new ArrayList<>();
+    private List<HomeApps.Item> appShelf = new ArrayList<>(), devices = new ArrayList<>();
+    private final Map<String, String> deviceLabels = new HashMap<>();   // device names cut to the tile, per layout
     private Spring[] tileFocus = new Spring[0];
     private RectF[] tileRects = new RectF[0];
     private final Map<String, Bitmap> crispLogos = new HashMap<>();   // logos already sized for the focused tile
@@ -666,7 +668,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         scene.setMotion(0.6f, 0f);
         updatePalette();
         // First time: right away (a cold start opens with the apps already there); missing logos come from reload().
-        setShelf(HomeApps.shelf(a, false));
+        appShelf = HomeApps.shelf(a, false);
+        setShelf(appShelf);
         setStatusItems(statusList(a));
         setDrawerItems(drawerList(a));
     }
@@ -1593,6 +1596,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             x += tw + gap;
         }
         crispLogos.clear();
+        deviceLabels.clear();
     }
 
     /** How many tiles fit fully between the margins (fewer on TVs short on memory: HomeApps.shelfVisible). */
@@ -1835,6 +1839,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         shadowDeep.setColor(Ui.alpha(0xFF000000, tone(0.14f, 0.3f) + tone(0.18f, 0.3f) * fc + 0.14f * Ui.clamp(l)));
         shadows.draw(c, tmp, r0, DEEP_BLUR * k, shadowDeep);
         c.restore();
+        if (it.kind == HomeApps.INPUT) {
+            drawDeviceTile(c, it, cell, r, s, fc);
+            return;
+        }
         int[] style = TILE_STYLE.get(it.key);
         if (it.logo != null && style != null) {
             if (tileShaders.length != shelf.size() || tileShaderH != bh) {
@@ -1870,6 +1878,37 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             if (it.tile != null) roundImage(c, it.tile, it.tileShader, cell, r);
         }
     }
+
+    /**
+     * A device switched on behind an HDMI input, by the name it gives over HDMI-CEC ("PlayStation 5"): its brand's colour
+     * where it's a known console, its symbol, and the name; OK switches to that input.
+     */
+    private void drawDeviceTile(Canvas c, HomeApps.Item it, RectF cell, float r, float s, float focus) {
+        String name = it.label == null ? "" : it.label;
+        String low = name.toLowerCase(java.util.Locale.ROOT);
+        int color = low.contains("playstation") || low.startsWith("ps") ? 0xFF00439C
+                : low.contains("xbox") ? 0xFF107C10 : low.contains("nintendo") || low.contains("switch") ? 0xFFE60012 : 0xFF2C2C2E;
+        tileFill.setShader(null);
+        tileFill.setColor(blend(color, 0xFFFFFFFF, 0.08f * focus));
+        c.drawRoundRect(cell, r, r, tileFill);
+        Symbols.draw(getContext(), c, it.symbol, cell.centerX(), cell.top + cell.height() * 0.4f, 38 * k * s, WHITE);
+        if (deviceLabel == null || deviceLabel.getTextSize() != 18 * k) {
+            deviceLabel = Ui.text(Ui.semibold, 18 * k, WHITE);
+            deviceLabel.setTextAlign(Paint.Align.CENTER);
+        }
+        String shown = deviceLabels.get(it.key);
+        if (shown == null) {
+            shown = TextUtils.ellipsize(name, new TextPaint(deviceLabel), tileRects.length == 0 ? 160 * k : tileRects[0].width() - 20 * k,
+                    TextUtils.TruncateAt.END).toString();
+            deviceLabels.put(it.key, shown);
+        }
+        c.save();
+        c.scale(s, s, cell.centerX(), cell.centerY());
+        c.drawText(shown, cell.centerX(), cell.centerY() + cell.height() / s * 0.32f, deviceLabel);
+        c.restore();
+    }
+
+    private Paint deviceLabel;
 
     /**
      * `image` stretched over `cell`, with corners of radius `r`: the shader of an anti-aliased rounded rectangle. A
@@ -2630,7 +2669,15 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 boolean keepOrder = reordering || pendingOrderSaves > 0 || orderAtLoad != orderRevision;
                 if (top != null && !keepOrder) setLightButtons(top);
                 setRows(picks, on, slots, w, allowed);
-                if (s != null && !keepOrder) setShelf(s);
+                if (s != null && !keepOrder) appShelf = s;
+                List<HomeApps.Item> on = new ArrayList<>();
+                for (HomeApps.Item it : d) if (it.kind == HomeApps.INPUT && it.connected) on.add(it);
+                if (!keepOrder && (s != null || !sameKeys(on, devices))) {
+                    devices = on;
+                    List<HomeApps.Item> row = new ArrayList<>(on);
+                    row.addAll(appShelf);
+                    setShelf(row);
+                }
                 if (apps && keepOrder) appsStale = true;
                 setStatusItems(st);
                 setDrawerItems(d);
@@ -2638,6 +2685,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 else if (o != null) appsStale = true;   // All Apps is open: its list comes next time
             });
         });
+    }
+
+    private static boolean sameKeys(List<HomeApps.Item> a, List<HomeApps.Item> b) {
+        if (a.size() != b.size()) return false;
+        for (int i = 0; i < a.size(); i++) if (!a.get(i).key.equals(b.get(i).key) || !a.get(i).label.equals(b.get(i).label)) return false;
+        return true;
     }
 
     /** Apps installed, removed or updated (also while another app is open): the next reload reads them again. */
@@ -3438,7 +3491,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             return;
         }
         int i = shelfIndex, j = i + dx;
-        if (j < 0 || j >= shelf.size()) return;
+        if (j < 0 || j >= shelf.size() || shelf.get(j).kind != HomeApps.APP) return;   // the devices keep the front
         HomeApps.Item it = shelf.get(i);
         shelf.set(i, shelf.get(j));
         shelf.set(j, it);
@@ -3485,7 +3538,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             if (appsStale && running) reloadSoon();
             return;
         }
-        for (HomeApps.Item it : shelf) order.add(it.pkg);
+        for (HomeApps.Item it : shelf) if (it.kind == HomeApps.APP && it.pkg != null) order.add(it.pkg);
         final Context c = getContext().getApplicationContext();
         pendingOrderSaves++;
         LOADER.execute(() -> {
