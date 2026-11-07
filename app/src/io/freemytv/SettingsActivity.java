@@ -1754,7 +1754,7 @@ public class SettingsActivity extends Activity {
 
         /** As saveKey, for the OMDb key. */
         private String saveOmdbKey(String pasted) {
-            String key = Recs.cleanKey(pasted);
+            String key = Recs.cleanOmdbKey(pasted);
             String why = key.isEmpty() ? Ui.tr("That doesn't look like an OMDb key.") : Recs.checkOmdbKey(key);
             if (why == null) Prefs.setOmdbKey(key);
             keyChecked(why, KeyPage.OMDB, Ui.tr("Saved. The ratings arrive in a moment."));

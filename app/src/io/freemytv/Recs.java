@@ -311,6 +311,12 @@ final class Recs {
         return key.matches("[A-Za-z0-9._-]{16,1024}") ? key : "";
     }
 
+    /** An OMDb key as pasted (spaces taken out), or "" when it can't be one: OMDb's keys are short (8 hex digits). */
+    static String cleanOmdbKey(String pasted) {
+        String key = pasted == null ? "" : pasted.replaceAll("\\s+", "");
+        return key.matches("[A-Za-z0-9]{6,64}") ? key : "";
+    }
+
     /** Asks TMDB whether a key works, before it's saved: null if it does, else why not, for the screen. Never logged. */
     static String checkKey(String key) {
         try {

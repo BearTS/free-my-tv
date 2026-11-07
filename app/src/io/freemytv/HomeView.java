@@ -4702,9 +4702,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         int n = Math.min(cards.size(), cardRects.length);
         int top = -1;
         for (int i = 0; i < n; i++) if (cardFocus[i].value > 0.02f && (top < 0 || cardFocus[i].value > cardFocus[top].value)) top = i;
+        // Posters scrolled past the open card slide away under the left margin, not into a sliver at the screen's edge.
+        c.save();
+        c.clipRect((MARGIN - 24) * k, 0, w, h);
         for (int i = 0; i < n; i++) if (i != top) drawLightCard(c, i);
         if (n < cardRects.length && recs.hasMore(TAB_KIND[tab])) drawLoadingCard(c, cardRects[n]);
         if (top >= 0) drawLightCard(c, top);
+        c.restore();
     }
 
     // The details panel's texts, laid out once per pick (and again when its details or ratings arrive).
@@ -4725,7 +4729,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (!service.isEmpty() && meta.endsWith(" · " + service)) meta = meta.substring(0, meta.length() - service.length() - 3);
         else if (meta.equals(service)) meta = "";
         int width = Math.max(1, Math.round(PANEL_W * k));
-        detailMeta = TextUtils.ellipsize(meta, new TextPaint(lDetailMeta), width, TextUtils.TruncateAt.END).toString();
+        // Room left of the ratings, which share its line.
+        detailMeta = TextUtils.ellipsize(meta, new TextPaint(lDetailMeta), width - 260 * k, TextUtils.TruncateAt.END).toString();
         detailWatch = Ui.tr("Watch now");
         String title = p.title == null ? "" : p.title;
         detailTitle = StaticLayout.Builder.obtain(title, 0, title.length(), lDetailTitle, width).setMaxLines(2)
@@ -4738,8 +4743,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         String body = p.overview == null ? "" : p.overview.trim();
         if (!body.isEmpty()) {
             // As many lines as fit between the ratings and the button, inside the card.
-            float used = CARD_PAD + 30 + detailTitle.getHeight() / k + (detailMeta.isEmpty() ? 0 : 38) + (detailRatings.isEmpty() ? 0 : 56) + 12;
-            float room = L_CARD_H - CARD_PAD - used - BUTTON_H - 18;
+            float used = CARD_PAD + 28 + detailTitle.getHeight() / k + (detailMeta.isEmpty() && detailRatings.isEmpty() ? 0 : 44) + 10;
+            float room = L_CARD_H - CARD_PAD - used - BUTTON_H - 14;
             int lines = Math.max(0, Math.min(4, (int) (room / 30)));
             if (lines > 0) detailBody = StaticLayout.Builder.obtain(body, 0, body.length(), lDetailBody, width).setMaxLines(lines)
                     .setEllipsize(TextUtils.TruncateAt.END).setLineSpacing(4 * k, 1).setIncludePad(false).build();
@@ -4770,7 +4775,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             lEyebrow.setColor(Ui.alpha(0xFFC9CDD3, a));
             c.drawText(detailEyebrow, x, y + 16 * k, lEyebrow);
         }
-        y += 28 * k;
+        y += 26 * k;
         c.save();
         c.translate(x, y);
         lDetailTitle.setColor(WHITE);
@@ -4778,16 +4783,16 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         detailTitle.draw(c);
         c.restore();
         y += detailTitle.getHeight();
-        if (!detailMeta.isEmpty()) {
-            lDetailMeta.setColor(Ui.alpha(0xFFC9CDD3, a));
-            c.drawText(detailMeta, x, y + 30 * k, lDetailMeta);
-            y += 38 * k;
-        }
-        if (!detailRatings.isEmpty()) {
-            y += 14 * k;
-            float rx = x, cy = y + 17 * k;
-            for (String[] rating : detailRatings) rx = drawRating(c, rating[0], rating[1], rx, cy, a) + 26 * k;
-            y += 42 * k;
+        // Genre and length, then the ratings on the same line.
+        if (!detailMeta.isEmpty() || !detailRatings.isEmpty()) {
+            float rx = x, cy = y + 24 * k;
+            if (!detailMeta.isEmpty()) {
+                lDetailMeta.setColor(Ui.alpha(0xFFC9CDD3, a));
+                c.drawText(detailMeta, x, cy + Ui.halfCap(lDetailMeta), lDetailMeta);
+                rx += lDetailMeta.measureText(detailMeta) + 28 * k;
+            }
+            for (String[] rating : detailRatings) rx = drawRating(c, rating[0], rating[1], rx, cy, a) + 24 * k;
+            y += 44 * k;
         }
         if (detailBody != null) {
             y += 10 * k;
@@ -4896,7 +4901,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         RectF base = cardRects[i];
         if (base.right < 0 || base.left > getWidth()) return;   // slid off screen
         Recs.Pick p = i < cards.size() ? cards.get(i) : null;
-        float v = cardFocus[i].value, f = Ui.clamp(v), s = 1 + 0.05f * v;
+        // A poster grows 5% with the focus; the open card about as many pixels (5% of it would reach the tabs).
+        float v = cardFocus[i].value, f = Ui.clamp(v), s = 1 + 0.05f * v * (1 - 0.8f * Ui.clamp(cardOpen[i].value));
         float bw = base.width(), bh = base.height(), r0 = L_CARD_R * k;
         float cx = base.centerX(), cy = base.centerY() - 6 * k * v;
         cell.set(cx - bw * s / 2, cy - bh * s / 2, cx + bw * s / 2, cy + bh * s / 2);
