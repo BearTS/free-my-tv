@@ -2670,11 +2670,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 if (top != null && !keepOrder) setLightButtons(top);
                 setRows(picks, on, slots, w, allowed);
                 if (s != null && !keepOrder) appShelf = s;
-                List<HomeApps.Item> on = new ArrayList<>();
-                for (HomeApps.Item it : d) if (it.kind == HomeApps.INPUT && it.connected) on.add(it);
-                if (!keepOrder && (s != null || !sameKeys(on, devices))) {
-                    devices = on;
-                    List<HomeApps.Item> row = new ArrayList<>(on);
+                List<HomeApps.Item> awake = new ArrayList<>();
+                for (HomeApps.Item it : d) if (it.kind == HomeApps.INPUT && it.connected) awake.add(it);
+                if (!keepOrder && (s != null || !sameKeys(awake, devices))) {
+                    devices = awake;
+                    List<HomeApps.Item> row = new ArrayList<>(awake);
                     row.addAll(appShelf);
                     setShelf(row);
                 }
