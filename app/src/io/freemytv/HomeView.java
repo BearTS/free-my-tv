@@ -1891,6 +1891,15 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         tileFill.setShader(null);
         tileFill.setColor(blend(color, 0xFFFFFFFF, 0.08f * focus));
         c.drawRoundRect(cell, r, r, tileFill);
+        if (color == 0xFF00439C && (low.contains("5") || low.contains("ps5"))) {   // a PlayStation 5: its own logo
+            if (ps5Logo == null) ps5Logo = android.graphics.BitmapFactory.decodeResource(getResources(), R.drawable.ps5_logo);
+            if (ps5Logo != null) {
+                float lw = cell.width() * 0.72f, lh = lw * ps5Logo.getHeight() / ps5Logo.getWidth();
+                tmp.set(cell.centerX() - lw / 2, cell.centerY() - lh / 2, cell.centerX() + lw / 2, cell.centerY() + lh / 2);
+                c.drawBitmap(ps5Logo, null, tmp, bitmapPaint);
+                return;
+            }
+        }
         Symbols.draw(getContext(), c, it.symbol, cell.centerX(), cell.top + cell.height() * 0.4f, 38 * k * s, WHITE);
         if (deviceLabel == null || deviceLabel.getTextSize() != 18 * k) {
             deviceLabel = Ui.text(Ui.semibold, 18 * k, WHITE);
@@ -1909,6 +1918,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     private Paint deviceLabel;
+    private Bitmap ps5Logo;   // the PlayStation 5 logo (Wikimedia Commons), white on transparent
 
     /**
      * `image` stretched over `cell`, with corners of radius `r`: the shader of an anti-aliased rounded rectangle. A
