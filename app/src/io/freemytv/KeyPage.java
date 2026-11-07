@@ -45,6 +45,7 @@ final class KeyPage {
     }
 
     static final long OPEN_FOR = 5 * 60_000L;
+    private static final int PORT = 8765;
     private static final int MAX_HEAD = 8192, MAX_BODY = 4096, MAX_REQUESTS = 100, MAX_ANSWERING = 4;
     /** A whole request (head and body), not each read: a client trickling bytes can't keep a thread for long. */
     private static final long READ_FOR_NS = 15_000_000_000L;
@@ -63,11 +64,17 @@ final class KeyPage {
     KeyPage(InetAddress lan, int kind, Listener listener) throws IOException {
         this.listener = listener;
         this.kind = kind;
-        byte[] random = new byte[12];
-        new SecureRandom().nextBytes(random);
-        path = "/" + Base64.getUrlEncoder().withoutPadding().encodeToString(random);
-        server = new ServerSocket(0, 4, lan);   // port 0: a free one the system picks
-        url = "http://" + lan.getHostAddress() + ":" + server.getLocalPort() + path;
+        // A fixed address, easy to type on a phone without a camera (http://<TV>:8765); a free port the system picks
+        // only if that one is taken. The page still works once, for 5 minutes, and the TV checks any key before it saves it.
+        path = "/";
+        ServerSocket socket;
+        try {
+            socket = new ServerSocket(PORT, 4, lan);
+        } catch (IOException e) {
+            socket = new ServerSocket(0, 4, lan);
+        }
+        server = socket;
+        url = "http://" + lan.getHostAddress() + ":" + server.getLocalPort();
         Thread t = new Thread(this::serve, "KeyPage");
         t.setDaemon(true);
         t.start();

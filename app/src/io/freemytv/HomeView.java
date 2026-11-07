@@ -1939,6 +1939,36 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         c.restore();
     }
 
+    /**
+     * The open card's 16:9 picture, whole: as tall as the card, at its right, fading into a near-black that fills the
+     * rest (where the details go). While the card is still narrow it is simply cropped to it.
+     */
+    private void drawWideImage(Canvas c, Bitmap image, BitmapShader shader, RectF card, float r, float alpha) {
+        float iw = card.height() * 16 / 9;
+        wideRect.set(Math.max(card.left, card.right - iw), card.top, card.right, card.bottom);
+        if (wideRect.left <= card.left + 1) {
+            coverImage(c, image, shader, card, r, alpha);
+            return;
+        }
+        fill.setShader(null);
+        fill.setColor(Ui.alpha(0xFF0B0C0F, alpha));
+        c.drawRoundRect(card, r, r, fill);
+        coverImage(c, image, shader, wideRect, r, alpha);
+        if (wideFade == null) wideFade = new LinearGradient(0, 0, 1, 0, 0xFF0B0C0F, 0x000B0C0F, Shader.TileMode.CLAMP);
+        float fadeW = iw * 0.45f, left = Math.max(wideRect.left, card.left + r);
+        imageMatrix.setScale(fadeW, 1);
+        imageMatrix.postTranslate(wideRect.left, 0);
+        wideFade.setLocalMatrix(imageMatrix);
+        fill.setShader(wideFade);
+        fill.setAlpha(Math.round(255 * alpha));
+        c.drawRect(left, card.top, Math.min(card.right, wideRect.left + fadeW), card.bottom, fill);
+        fill.setShader(null);
+        fill.setAlpha(255);
+    }
+
+    private final RectF wideRect = new RectF();
+    private LinearGradient wideFade;
+
     /** The image cropped at the center to the cell's shape (not stretched), at `alpha`. */
     private void coverImage(Canvas c, Bitmap image, BitmapShader shader, RectF cell, float r, float alpha) {
         float iw = image.getWidth(), ih = image.getHeight();
@@ -4986,9 +5016,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (poster != null) {   // narrow: the poster; as the card widens the backdrop fades in over it
             float back = img == null ? 0 : Ui.clamp((open - 0.1f) / 0.6f);
             if (back < 0.999f) coverImage(c, poster.bitmap, poster.shader, cell, r, 1);   // not once the backdrop covers it
-            if (back > 0.001f) coverImage(c, img, b.wideShader, cell, r, back);
+            if (back > 0.001f) drawWideImage(c, img, b.wideShader, cell, r, back);
         } else if (img != null) {
-            coverImage(c, img, b.wideShader, cell, r, 1);
+            drawWideImage(c, img, b.wideShader, cell, r, 1);
         } else {
             fill.setShader(null);
             fill.setColor(tone(0xFFDADADF, 0xFF2C2C2E));

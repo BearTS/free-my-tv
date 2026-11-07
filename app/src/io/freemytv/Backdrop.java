@@ -26,8 +26,8 @@ final class Backdrop {
     /** The UI's size against 1920×1080 (at most 1): nothing is built bigger than the screen can show. */
     private static final float UI_SCALE = uiScale();
     static final int W = ui(1920), H = ui(1080), FW = 192, FH = 108, GW = 480, GH = 270;
-    /** The card at its focused size (1.05×) and the narrow one (from the poster). */
-    static final int WIDE_W = ui(1092), WIDE_H = ui(464), TALL_W = ui(336), TALL_H = ui(464);
+    /** The open card's picture, whole at 16:9 (it fills the card's right side), and the narrow card (from the poster). */
+    static final int WIDE_W = ui(640), WIDE_H = ui(360), TALL_W = ui(336), TALL_H = ui(464);
 
     private static float uiScale() {
         android.util.DisplayMetrics m = android.content.res.Resources.getSystem().getDisplayMetrics();
@@ -94,7 +94,7 @@ final class Backdrop {
             // Light design: everything comes from the photo without scrims.
             // The wide card is far wider than the photo: its strip comes off the bottom (under the card's text), not
             // half off the top.
-            Bitmap wide = card(out, WIDE_W, WIDE_H, 0);
+            Bitmap wide = card(out, WIDE_W, WIDE_H);
             int[] frost = reduce(out, FW, FH, 3, 3);
             int[] light = whiten(frost.clone(), 0.82f);
             int[] glass = reduce(out, GW, GH, 2, 2);
