@@ -69,6 +69,7 @@ final class HomeApps {
     static final class Item {
         int kind;
         String key, label, pkg, inputId, number;
+        String device;      // an input's device as it names itself over HDMI-CEC ("PlayStation 5"), or ""
         String uri;         // opens this address in the app instead of the app's home (a title's page)
         Intent intent;      // DEVICE: the TV maker's own screen it opens
         String symbol;      // icon for the shortcuts and special cards
@@ -496,6 +497,7 @@ final class HomeApps {
             it.inputId = info.getId();
             it.number = String.valueOf(number);
             it.connected = connected;
+            it.device = reported;
             out.add(it);
         }
         Collections.sort(out, (a, b) -> a.number.compareTo(b.number));

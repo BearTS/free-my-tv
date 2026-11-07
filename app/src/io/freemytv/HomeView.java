@@ -1885,13 +1885,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
      */
     private void drawDeviceTile(Canvas c, HomeApps.Item it, RectF cell, float r, float s, float focus) {
         String name = it.label == null ? "" : it.label;
-        String low = name.toLowerCase(java.util.Locale.ROOT);
-        int color = low.contains("playstation") || low.startsWith("ps") ? 0xFF00439C
+        // The TV may name the input itself ("Game console"); the device's own name says what it is.
+        String low = ((it.device == null ? "" : it.device) + " " + name).toLowerCase(java.util.Locale.ROOT);
+        int color = low.contains("playstation") || low.contains("ps5") || low.contains("ps4") ? 0xFF00439C
                 : low.contains("xbox") ? 0xFF107C10 : low.contains("nintendo") || low.contains("switch") ? 0xFFE60012 : 0xFF2C2C2E;
         tileFill.setShader(null);
         tileFill.setColor(blend(color, 0xFFFFFFFF, 0.08f * focus));
         c.drawRoundRect(cell, r, r, tileFill);
-        if (color == 0xFF00439C && (low.contains("5") || low.contains("ps5"))) {   // a PlayStation 5: its own logo
+        if (color == 0xFF00439C && (low.contains("playstation 5") || low.contains("ps5"))) {   // a PlayStation 5: its own logo
             if (ps5Logo == null) ps5Logo = android.graphics.BitmapFactory.decodeResource(getResources(), R.drawable.ps5_logo);
             if (ps5Logo != null) {
                 float lw = cell.width() * 0.72f, lh = lw * ps5Logo.getHeight() / ps5Logo.getWidth();
