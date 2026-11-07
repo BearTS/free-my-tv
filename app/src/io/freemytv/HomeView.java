@@ -116,10 +116,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     // Light design (the L_ constants): title, tab bar, three recommendation cards and the shelf.
     // The tab bar is a 68 px capsule; the cards sit on the 5-column grid (the wide one spans 3).
     // Rows, top to bottom: the title and tabs, the picks (endless), the apps, Continue Watching.
-    // The header (greeting and date; weather, time and round buttons), then the tabs, then the picks: the focused one's
-    // details at the left (PANEL_W), the posters scrolling endlessly from POSTERS_X.
+    // The header (greeting and date; weather, time and round buttons), then the tabs, then the picks: posters scrolling
+    // endlessly, the focused one first and opened into a landscape card with its details (PANEL_W wide) over its picture.
     private static final float L_TITLE_BASE = 96, L_DATE_LINE = 132, L_TABBAR_TOP = 168, L_TABBAR_H = 42, L_CARDS_TOP = 232, L_CARD_H = 340;
-    private static final float L_CARD_R = 24, L_WIDE_W = 236, PANEL_W = 600, POSTERS_X = 740, BUTTON_H = 56;
+    private static final float L_CARD_R = 24, L_WIDE_W = 1000, PANEL_W = 560, CARD_PAD = 32, BUTTON_H = 52;
     private static final float SHELF_LABEL_BASE = 610, SHELF_TOP = 626, WATCH_LABEL_BASE = 782, WATCH_TOP = 798;
     private static final float WATCH_GAP = 24, WATCH_MAX_W = 409, ROW_LABEL_SIZE = 22;
     private static final float L_TALL_W = 236, L_CARD_GAP = 24, L_BUTTON = 60, L_BUTTON_GAP = 16, L_BUTTON_CY = 82;
@@ -3951,12 +3951,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         layoutCards();
     }
 
-    /** The posters side by side from POSTERS_X, the focused one first (those before it slide off under the details). */
+    /** The cards side by side, the focused one first and wide, the others posters, sliding as `cardOpen` moves. */
     private void layoutCards() {
         float top = L_CARDS_TOP * k, ch = L_CARD_H * k, g = L_CARD_GAP * k, tall = L_TALL_W * k;
-        float x = POSTERS_X * k - cardScroll.value * (tall + g);
+        float wide = L_WIDE_W * k, x = MARGIN * k - cardScroll.value * (tall + g);
         for (int i = 0; i < cardRects.length; i++) {
-            float w = tall;
+            float w = Math.max(tall * 0.5f, tall + (wide - tall) * cardOpen[i].value);
             cardRects[i].set(x, top, x + w, top + ch);
             snap(cardRects[i]);
             x += w + g;
@@ -4698,18 +4698,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             if (i == tab) lTabOn.setColor(blend(tone(L_INK, WHITE), L_INK, focus));   // always dark on the white pill
             c.drawText(tabs()[i], r.centerX() - p.measureText(tabs()[i]) / 2, r.centerY() + Ui.halfCap(p), p);
         }
-        if (!cards.isEmpty()) drawDetails(c, cards.get(Math.min(cardIndex, cards.size() - 1)));
         layoutCards();
         int n = Math.min(cards.size(), cardRects.length);
         int top = -1;
         for (int i = 0; i < n; i++) if (cardFocus[i].value > 0.02f && (top < 0 || cardFocus[i].value > cardFocus[top].value)) top = i;
-        // Posters scrolled past the focused one slide away under the details' edge.
-        c.save();
-        c.clipRect((POSTERS_X - 28) * k, 0, w, h);
         for (int i = 0; i < n; i++) if (i != top) drawLightCard(c, i);
         if (n < cardRects.length && recs.hasMore(TAB_KIND[tab])) drawLoadingCard(c, cardRects[n]);
         if (top >= 0) drawLightCard(c, top);
-        c.restore();
     }
 
     // The details panel's texts, laid out once per pick (and again when its details or ratings arrive).
@@ -4742,56 +4737,76 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         detailBody = null;
         String body = p.overview == null ? "" : p.overview.trim();
         if (!body.isEmpty()) {
-            // As many lines as fit between the ratings and the button.
-            float used = 30 + detailTitle.getHeight() / k + (detailMeta.isEmpty() ? 0 : 38) + (detailRatings.isEmpty() ? 0 : 56) + 20;
-            float room = L_CARD_H - used - BUTTON_H - 22;
+            // As many lines as fit between the ratings and the button, inside the card.
+            float used = CARD_PAD + 30 + detailTitle.getHeight() / k + (detailMeta.isEmpty() ? 0 : 38) + (detailRatings.isEmpty() ? 0 : 56) + 12;
+            float room = L_CARD_H - CARD_PAD - used - BUTTON_H - 18;
             int lines = Math.max(0, Math.min(4, (int) (room / 30)));
             if (lines > 0) detailBody = StaticLayout.Builder.obtain(body, 0, body.length(), lDetailBody, width).setMaxLines(lines)
                     .setEllipsize(TextUtils.TruncateAt.END).setLineSpacing(4 * k, 1).setIncludePad(false).build();
         }
     }
 
-    /** The focused pick: its app, title, genre and length, ratings, summary and a Watch now button (OK on the poster). */
-    private void drawDetails(Canvas c, Recs.Pick p) {
+    /**
+     * The open card's details over its picture: a shade from the left, then the app, title, genre and length, ratings,
+     * summary and a Watch now button (white while the card has the focus: OK plays it). They fade in as the card opens.
+     */
+    private void drawCardDetails(Canvas c, Recs.Pick p, RectF card, float r, float open, boolean focused) {
+        if (cardShade == null) cardShade = new LinearGradient(0, 0, 1, 0, new int[] {0xF0000000, 0xC0000000, 0x00000000},
+                new float[] {0, 0.45f, 1}, Shader.TileMode.CLAMP);
+        imageMatrix.setScale(card.width() * 0.78f, 1);
+        imageMatrix.postTranslate(card.left, 0);
+        cardShade.setLocalMatrix(imageMatrix);
+        sheen.setShader(cardShade);
+        sheen.setAlpha(Math.round(255 * open));
+        c.drawRoundRect(card, r, r, sheen);
+        sheen.setAlpha(255);
+        sheen.setShader(null);
+        float a = smoothstep(0.55f, 1, open);   // the text waits until the card is nearly open: no squeezed lines
+        if (a <= 0.01f) return;
         prepareDetails(p);
-        float x = MARGIN * k, y = L_CARDS_TOP * k;
-        if (!detailEyebrow.isEmpty()) c.drawText(detailEyebrow, x, y + 18 * k, lEyebrow);
-        y += 30 * k;
+        int alpha = Math.round(255 * a);
+        float x = card.left + CARD_PAD * k, y = card.top + CARD_PAD * k;
+        if (!detailEyebrow.isEmpty()) {
+            lEyebrow.setColor(Ui.alpha(0xFFC9CDD3, a));
+            c.drawText(detailEyebrow, x, y + 16 * k, lEyebrow);
+        }
+        y += 28 * k;
         c.save();
         c.translate(x, y);
-        lDetailTitle.setColor(tone(L_INK, WHITE));
+        lDetailTitle.setColor(WHITE);
+        lDetailTitle.setAlpha(alpha);
         detailTitle.draw(c);
         c.restore();
         y += detailTitle.getHeight();
         if (!detailMeta.isEmpty()) {
-            lDetailMeta.setColor(tone(L_DIM, 0xFFA3A8B2));
+            lDetailMeta.setColor(Ui.alpha(0xFFC9CDD3, a));
             c.drawText(detailMeta, x, y + 30 * k, lDetailMeta);
             y += 38 * k;
         }
         if (!detailRatings.isEmpty()) {
             y += 14 * k;
             float rx = x, cy = y + 17 * k;
-            for (String[] r : detailRatings) rx = drawRating(c, r[0], r[1], rx, cy) + 26 * k;
+            for (String[] rating : detailRatings) rx = drawRating(c, rating[0], rating[1], rx, cy, a) + 26 * k;
             y += 42 * k;
         }
         if (detailBody != null) {
-            y += 12 * k;
+            y += 10 * k;
             c.save();
             c.translate(x, y);
-            lDetailBody.setColor(tone(L_DIM, 0xFFC9CDD3));
+            lDetailBody.setColor(0xFFDDE0E4);
+            lDetailBody.setAlpha(Math.round(0xE6 * a));
             detailBody.draw(c);
             c.restore();
         }
-        // The button: white while a poster has the focus (OK plays it), glass otherwise.
-        float f = zone == Z_CARDS && !sheetOpen ? 1 : 0;
-        float bh = BUTTON_H * k, top = (L_CARDS_TOP + L_CARD_H) * k - bh, icon = 18 * k;
-        float bw = lWatch.measureText(detailWatch) + icon + 12 * k + 2 * 30 * k;
+        float f = focused ? 1 : 0;
+        float bh = BUTTON_H * k, top = card.bottom - CARD_PAD * k - bh, icon = 17 * k;
+        float bw = lWatch.measureText(detailWatch) + icon + 12 * k + 2 * 26 * k;
         tmp.set(x, top, x + bw, top + bh);
         fill.setShader(null);
-        fill.setColor(blend(tone(0x14000000, 0x24FFFFFF), 0xFFFFFFFF, f));
+        fill.setColor(Ui.alpha(blend(0x33FFFFFF, 0xFFFFFFFF, f), a));
         c.drawRoundRect(tmp, bh / 2, bh / 2, fill);
-        int ink = blend(tone(L_INK, WHITE), L_INK, f);
-        float ix = x + 30 * k, icy = tmp.centerY();
+        int ink = Ui.alpha(blend(WHITE, L_INK, f), a);
+        float ix = x + 26 * k, icy = tmp.centerY();
         playIcon.reset();
         playIcon.moveTo(ix, icy - icon / 2);
         playIcon.lineTo(ix + icon * 0.86f, icy);
@@ -4803,33 +4818,35 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         c.drawText(detailWatch, ix + icon + 12 * k, icy + Ui.halfCap(lWatch), lWatch);
     }
 
+    private LinearGradient cardShade;
+
     /** A rating with its source's mark: TMDB's and IMDb's as small tags, Rotten Tomatoes' as a tomato (green under 60%). */
-    private float drawRating(Canvas c, String kind, String value, float x, float cy) {
+    private float drawRating(Canvas c, String kind, String value, float x, float cy, float a) {
         float th = 26 * k, r = 6 * k;
         if (kind.equals("rt")) {
             int score = 0;
             try { score = Integer.parseInt(value.replace("%", "").trim()); } catch (NumberFormatException ignored) { }
             float d = 24 * k;
             fill.setShader(null);
-            fill.setColor(score >= 60 ? 0xFFFA320A : 0xFF0AC855);
+            fill.setColor(Ui.alpha(score >= 60 ? 0xFFFA320A : 0xFF0AC855, a));
             c.drawCircle(x + d / 2, cy, d / 2, fill);
-            fill.setColor(0xFF2E7D32);   // the stem
+            fill.setColor(Ui.alpha(0xFF2E7D32, a));   // the stem
             tmp.set(x + d * 0.38f, cy - d / 2 - 3 * k, x + d * 0.62f, cy - d / 2 + 4 * k);
             c.drawRoundRect(tmp, 2 * k, 2 * k, fill);
             x += d + 10 * k;
         } else {
             boolean imdb = kind.equals("imdb");
             String tag = imdb ? "IMDb" : "TMDB";
-            lRatingTag.setColor(imdb ? 0xFF000000 : 0xFF01B4E4);
+            lRatingTag.setColor(Ui.alpha(imdb ? 0xFF000000 : 0xFF01B4E4, a));
             float tw = lRatingTag.measureText(tag) + 16 * k;
             tmp.set(x, cy - th / 2, x + tw, cy + th / 2);
             fill.setShader(null);
-            fill.setColor(imdb ? 0xFFF5C518 : 0xFF0D253F);
+            fill.setColor(Ui.alpha(imdb ? 0xFFF5C518 : 0xFF0D253F, a));
             c.drawRoundRect(tmp, r, r, fill);
             c.drawText(tag, x + 8 * k, cy + Ui.halfCap(lRatingTag), lRatingTag);
             x += tw + 10 * k;
         }
-        lRatingValue.setColor(tone(L_INK, WHITE));
+        lRatingValue.setColor(Ui.alpha(WHITE, a));
         c.drawText(value, x, cy + Ui.halfCap(lRatingValue), lRatingValue);
         return x + lRatingValue.measureText(value);
     }
@@ -4895,7 +4912,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         Backdrop b = p == null ? null : recs.backdrop(p);
         Bitmap img = b == null ? null : b.wide;
         Recs.Poster poster = recs.poster(p);
-        float open = 0;   // every card is a poster: the focused one's details are in the panel at the left
+        float open = Ui.clamp(cardOpen[i].value);
         if (poster != null) {   // narrow: the poster; as the card widens the backdrop fades in over it
             float back = img == null ? 0 : Ui.clamp((open - 0.1f) / 0.6f);
             if (back < 0.999f) coverImage(c, poster.bitmap, poster.shader, cell, r, 1);   // not once the backdrop covers it
@@ -4938,38 +4955,16 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         if (p == null) return;
         boolean picture = img != null || poster != null;
-        // The wide card carries its title and details over a shade at the bottom; a poster has its own title on it. A
-        // card without any picture yet shows its title, so it isn't a blank tile.
-        float textA = picture ? open : 1;
-        if (textA <= 0.02f) return;
         if (picture) {
-            if (cardScrim == null) cardScrim = new LinearGradient(0, 0, 0, 1, 0x00000000, 0xCC000000, Shader.TileMode.CLAMP);
-            float sh = Math.min(cell.height(), 190 * k * s);
-            imageMatrix.setScale(1, sh);
-            imageMatrix.postTranslate(0, cell.bottom - sh);
-            cardScrim.setLocalMatrix(imageMatrix);
-            sheen.setShader(cardScrim);
-            sheen.setAlpha(Math.round(255 * textA));
-            tmp.set(cell.left, cell.bottom - sh, cell.right, cell.bottom);
-            c.save();
-            c.clipRect(tmp);
-            c.drawRoundRect(cell, r, r, sheen);
-            c.restore();
-            sheen.setAlpha(255);
-            sheen.setShader(null);
+            if (open > 0.02f) drawCardDetails(c, p, cell, r, open, zone == Z_CARDS && !sheetOpen && i == cardIndex);
+            return;
         }
-        float pad = 32 * k * s, room = cell.width() - 2 * pad;
-        boolean meta = picture && p.meta != null && !p.meta.isEmpty();
-        lOverTitle.setColor(picture ? WHITE : tone(L_INK, WHITE));
-        lOverTitle.setAlpha(Math.round(255 * textA));
+        // No picture yet: its title, so it isn't a blank tile.
+        float pad = 24 * k * s;
+        lOverTitle.setColor(tone(L_INK, WHITE));
         fitPaint.set(lOverTitle);
-        float titleBase = cell.bottom - (meta ? 62 : 30) * k * s;
-        c.drawText(TextUtils.ellipsize(p.title, fitPaint, room, TextUtils.TruncateAt.END).toString(), cell.left + pad, titleBase, lOverTitle);
-        if (meta) {
-            lOverMeta.setAlpha(Math.round(0xE6 * textA));
-            fitPaint.set(lOverMeta);
-            c.drawText(TextUtils.ellipsize(p.meta, fitPaint, room, TextUtils.TruncateAt.END).toString(), cell.left + pad, cell.bottom - 28 * k * s, lOverMeta);
-        }
+        c.drawText(TextUtils.ellipsize(p.title, fitPaint, cell.width() - 2 * pad, TextUtils.TruncateAt.END).toString(),
+                cell.left + pad, cell.bottom - 30 * k * s, lOverTitle);
     }
 
     /**
