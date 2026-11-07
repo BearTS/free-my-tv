@@ -20,7 +20,9 @@ import java.util.Set;
  * What you were watching in your apps, from Android TV's own lists (TvContract, needs READ_TV_LISTINGS): the system
  * Watch Next list, where Prime Video, Disney+, HBO Max, Plex and others note what you left half-way, and the home
  * screen channels some apps publish under the name "Continue Watching" instead (Stremio). Newest first, a few per app,
- * so one show doesn't fill the row.
+ * so one show doesn't fill the row. With Config.WATCH_NEXT_NETWORK, a picture given as an http:// or https:// address
+ * (Jellyfin clients among them, which point at their own server's image instead of caching one locally) is kept too;
+ * see WatchArt for where it's fetched.
  */
 final class WatchNext {
     private WatchNext() {}
@@ -46,8 +48,11 @@ final class WatchNext {
             this.pkg = pkg;
             picture = thumbnail != null ? thumbnail : poster;
             Uri uri = picture == null ? null : Uri.parse(picture);
-            pictureUri = uri != null && ("content".equalsIgnoreCase(uri.getScheme())
-                    || "android.resource".equalsIgnoreCase(uri.getScheme())) ? uri : null;
+            String scheme = uri == null ? null : uri.getScheme();
+            boolean local = "content".equalsIgnoreCase(scheme) || "android.resource".equalsIgnoreCase(scheme);
+            boolean network = Config.WATCH_NEXT_NETWORK
+                    && ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme));
+            pictureUri = local || network ? uri : null;
             pictureKey = pictureUri == null ? null : picture;
             bannerKey = "banner:" + pkg;
         }

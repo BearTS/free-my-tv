@@ -1,0 +1,45 @@
+# Personal-fork workflow: builds FreeMyTV.apk with watch_next_network=true (Continue Watching fetches posters
+# an app wrote as an http:// or https:// address, not only content:// and android.resource://) and uploads it as a
+# build artifact. Signed with this fork's own key (FREEMYTV_KEYSTORE_B64 / FREEMYTV_KEYSTORE_PASS secrets), kept
+# stable across runs so later builds can update in place with `adb install -r`.
+name: Build APK (personal fork)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [remote-watch-next-posters]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Google TV app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Android SDK (build-tools 34, android-34)
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$RUNNER_TEMP/sdk" \
+            "build-tools;34.0.0" "platforms;android-34" > /dev/null
+          echo "ANDROID_HOME=$RUNNER_TEMP/sdk" >> "$GITHUB_ENV"
+      - name: config.properties
+        run: |
+          cp config.example.properties config.properties
+          sed -i 's/^watch_next_network=.*/watch_next_network=true/' config.properties
+      - name: Signing key
+        run: echo "${{ secrets.FREEMYTV_KEYSTORE_B64 }}" | base64 -d > freemytv-fork.keystore
+      - name: Build
+        env:
+          FREEMYTV_KEYSTORE: freemytv-fork.keystore
+          FREEMYTV_KEYSTORE_PASS: ${{ secrets.FREEMYTV_KEYSTORE_PASS }}
+        run: ./build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FreeMyTV
+          path: FreeMyTV.apk
+          retention-days: 14
