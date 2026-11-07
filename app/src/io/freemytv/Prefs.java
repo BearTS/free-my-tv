@@ -299,18 +299,43 @@ final class Prefs {
     static boolean saverWatch() { return sp().getBoolean("saverWatch", false); }
     static void setSaverWatch(boolean on) { put("saverWatch", on); }
 
-    // MARK: - Top of the home screen
+    // MARK: - Home screen rows
 
-    static final String TOP_PICKS = "picks", TOP_CONTINUE = "continue", TOP_NONE = "none";
-    static final String[] TOP_CONTENT = {TOP_PICKS, TOP_CONTINUE, TOP_NONE};
+    static final String PICKS_ENDLESS = "endless", PICKS_FIXED = "fixed", PICKS_OFF = "off";
+    static final String[] PICKS_MODES = {PICKS_ENDLESS, PICKS_FIXED, PICKS_OFF};
 
-    /** What the cards under the title show: the recommendations (TMDB), what you were watching in your apps, or nothing. */
-    static String topContent() {
-        String v = sp().getString("topContent", TOP_PICKS);
-        return v.equals(TOP_CONTINUE) || v.equals(TOP_NONE) ? v : TOP_PICKS;
+    /** The picks row: endless (more load as it scrolls), a fixed number per tab (cards()), or off (the clock instead). */
+    static String picks() {
+        String v = sp().getString("picksMode", PICKS_ENDLESS);
+        return v.equals(PICKS_FIXED) || v.equals(PICKS_OFF) ? v : PICKS_ENDLESS;
     }
 
-    static void setTopContent(String v) { put("topContent", v); }
+    static void setPicks(String v) { put("picksMode", v); }
+
+    static boolean picksEndless() { return picks().equals(PICKS_ENDLESS); }
+
+    /** The Continue Watching row under the apps. */
+    static boolean watchRow() { return sp().getBoolean("watchRow", true); }
+    static void setWatchRow(boolean on) { put("watchRow", on); }
+
+    static final int[] WATCH_CARDS = {3, 4, 5, 6}, WATCH_PER_APP = {1, 2, 3, 4, 5, 0}, WATCH_MAX = {10, 20, 30, 50};
+
+    /** Continue Watching cards that fit on screen at once (the row scrolls for the rest). */
+    static int watchCards() { return pick(WATCH_CARDS, sp().getInt("watchCards", 4)); }
+    static void setWatchCards(int n) { put("watchCards", n); }
+
+    /** The most Continue Watching items from one app; 0 = no limit. */
+    static int watchPerApp() { return pick(WATCH_PER_APP, sp().getInt("watchPerApp", 3)); }
+    static void setWatchPerApp(int n) { put("watchPerApp", n); }
+
+    /** The most items in the Continue Watching row. */
+    static int watchMax() { return pick(WATCH_MAX, sp().getInt("watchMax", 20)); }
+    static void setWatchMax(int n) { put("watchMax", n); }
+
+    private static int pick(int[] allowed, int v) {
+        for (int a : allowed) if (a == v) return v;
+        return allowed[0];
+    }
 
     /** Apps left out of Continue Watching (Settings), by package. */
     static Set<String> watchOff() { return new HashSet<>(sp().getStringSet("watchOff", new HashSet<>())); }

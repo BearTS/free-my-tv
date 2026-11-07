@@ -82,8 +82,12 @@ final class Recs {
     private static final int TRAKT_MAX = MAX_CARDS;
     /** By subscription, with ads (Pluto TV) or free: never rent or buy. */
     private static final String WATCH_TYPES = "flatrate%7Cads%7Cfree";
-    /** Images kept on disk: a backdrop and a poster for every title the list can hold. */
-    private static final int FILES = 2 * (POOL + TRAKT_MAX);
+    /** Endless picks: titles appended per kind at most (TMDB's popular titles on the TV's services, page by page). */
+    private static final int ENDLESS_MAX = 300;
+    /** Endless picks: titles per kind whose details and images are fetched up front; the rest as they near the screen. */
+    private static final int ENDLESS_FIRST = 8;
+    /** Images kept on disk: a backdrop and a poster for every title the list can hold, plus room for scrolling further. */
+    private static final int FILES = 2 * (POOL + TRAKT_MAX) + 120;
     /** Pick.mine: what they're in the middle of, and what they'd like (watchlist, Trakt's recommendations). */
     private static final int PROGRESS = 1, LIKED = 2;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
@@ -211,6 +215,12 @@ final class Recs {
     private volatile String listLanguage = "";   // language used for the saved titles, genres and texts
     private volatile String traktActivity = "";  // Trakt's last change when the picks were fetched
     private volatile long traktCheckedAt;
+    // Endless picks: the next TMDB page per kind, whether TMDB has more, and which kinds are loading now.
+    private final Map<String, Integer> nextPage = new HashMap<>();
+    private final Set<String> exhausted = java.util.Collections.synchronizedSet(new HashSet<>());
+    private final Set<String> loadingMore = java.util.Collections.synchronizedSet(new HashSet<>());
+    private final Set<String> detailing = java.util.Collections.synchronizedSet(new HashSet<>());
+    private volatile String common;   // the /discover filters for the TV's services (commonQuery), once known
 
     private Recs(Context c) {
         context = c;
@@ -374,11 +384,18 @@ final class Recs {
             }
         }
         long hour = System.currentTimeMillis() / 3600_000L;
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        if (Prefs.picksEndless()) {
+            // The whole list in a stable order, so titles loaded later only ever join at the end of the row.
+            take(out, seen, progress, 0, Integer.MAX_VALUE);
+            take(out, seen, liked, 0, Integer.MAX_VALUE);
+            take(out, seen, list, 0, Integer.MAX_VALUE);
+            return out;
+        }
         // Trakt first: what they're in the middle of (as Trakt orders it), up to 2 in 5 cards, then their watchlist and
         // Trakt's recommendations, up to 3 in 5 with those; then TMDB's. A new set each hour; Trakt's fill the rest when
         // TMDB's run short. Never two from the same franchise ("Law & Order" and "Law & Order: Special…").
         int cards = Prefs.cards();
-        java.util.Set<String> seen = new java.util.HashSet<>();
         take(out, seen, progress, 0, Math.max(1, cards * 2 / 5));
         take(out, seen, liked, hour * cards, Math.max(2, cards * 3 / 5));
         take(out, seen, list, hour * cards, cards);
@@ -391,6 +408,7 @@ final class Recs {
     private static void take(List<Pick> out, java.util.Set<String> seen, List<Pick> from, long start, int max) {
         boolean plex = false;
         for (Pick p : out) plex |= p.id < 0;
+        if (from.isEmpty()) return;
         for (int i = 0; i < from.size() && out.size() < max; i++) {
             Pick p = from.get((int) ((start + i) % from.size()));
             if (p.id < 0 && plex) continue;   // a Plex title is the surprise: one per tab, not the movie and the show together
@@ -687,10 +705,105 @@ final class Recs {
     List<Pick> wanted() {
         List<Pick> out = new ArrayList<>();
         java.util.Set<String> seen = new java.util.HashSet<>();
+        boolean endless = Prefs.picksEndless();
         for (String kind : new String[] {null, "movie", "tv"}) {
-            for (Pick p : now(kind)) if (seen.add(key(p))) out.add(p);
+            List<Pick> tab = now(kind);
+            // Endless: only the start of each tab up front; ensure() fetches the others as they near the screen.
+            for (int i = 0; i < tab.size() && (!endless || i < ENDLESS_FIRST); i++) if (seen.add(key(tab.get(i)))) out.add(tab.get(i));
         }
         return out;
+    }
+
+    /** Endless picks: a title near the screen without its details (genre, its app) gets them in the background. */
+    void ensure(Pick p) {
+        if (p == null || p.detailed || p.id < 0 || !hasKey(context) || !detailing.add(key(p))) return;
+        io.execute(() -> {
+            try {
+                fetchDetails(p);
+                save();
+            } catch (Exception e) {
+                AppLog.w("recs details: " + e.getMessage());
+            } finally {
+                detailing.remove(key(p));
+                notifyListeners();
+            }
+        });
+    }
+
+    /** Endless picks: whether TMDB may have more for this tab (null = Explore: movies and shows). */
+    boolean hasMore(String kind) {
+        if (!Prefs.picksEndless() || !hasKey(context)) return false;
+        if (kind == null) return !exhausted.contains("movie") || !exhausted.contains("tv");
+        return !exhausted.contains(kind);
+    }
+
+    boolean loadingMore(String kind) {
+        return kind == null ? !loadingMore.isEmpty() : loadingMore.contains(kind);
+    }
+
+    /**
+     * Endless picks: the next page of TMDB's popular titles on the TV's services, for one tab (null = Explore: a page
+     * of movies and one of shows). Only titles with an app on the TV join, at the end of the list, details already in,
+     * so the row never shifts under the focus; their images come as they near the screen.
+     */
+    void loadMore(String kind) {
+        if (!Prefs.picksEndless() || !hasKey(context)) return;
+        List<String> kinds = new ArrayList<>();
+        for (String k : kind == null ? new String[] {"movie", "tv"} : new String[] {kind}) {
+            if (!exhausted.contains(k) && loadingMore.add(k)) kinds.add(k);
+        }
+        if (kinds.isEmpty()) return;
+        notifyListeners();   // the row shows it's loading
+        io.execute(() -> {
+            try {
+                if (common == null) common = commonQuery();
+                Set<String> have = new HashSet<>();
+                int[] counts = new int[2];
+                for (Pick p : picks) {
+                    have.add(key(p));
+                    if ("movie".equals(p.kind)) counts[0]++; else counts[1]++;
+                }
+                List<Pick> added = new ArrayList<>();
+                for (String k : kinds) {
+                    if ((k.equals("movie") ? counts[0] : counts[1]) >= ENDLESS_MAX) {
+                        exhausted.add(k);
+                        continue;
+                    }
+                    // A page whose titles are all known (or on no app of the TV) moves on to the next, a few at most.
+                    for (int tries = 0; tries < 3; tries++) {
+                        int page = nextPage.containsKey(k) ? nextPage.get(k) : 1;
+                        JSONObject res = get("/discover/" + k + "?vote_count.gte=" + (k.equals("movie") ? 30 : 20) + common + "&page=" + page);
+                        nextPage.put(k, page + 1);
+                        if (page >= Math.min(500, res.optInt("total_pages", 1))) exhausted.add(k);
+                        List<Pick> found = new ArrayList<>();
+                        JSONArray results = res.optJSONArray("results");
+                        for (int i = 0; results != null && i < results.length(); i++) add(found, results.getJSONObject(i), k);
+                        int before = added.size();
+                        for (Pick p : found) {
+                            if (!have.add(key(p))) continue;
+                            try {
+                                fetchDetails(p);
+                            } catch (Exception e) {
+                                continue;
+                            }
+                            if (p.pkg != null) added.add(p);
+                        }
+                        if (added.size() > before || exhausted.contains(k)) break;
+                    }
+                }
+                if (!added.isEmpty()) {
+                    List<Pick> next = new ArrayList<>(picks);
+                    next.addAll(added);
+                    picks = next;
+                    save();
+                }
+            } catch (Exception e) {
+                AppLog.w("recs more: " + e.getMessage());
+            } finally {
+                loadingMore.removeAll(kinds);
+                notifyListeners();
+            }
+        });
     }
 
     /** Movies and shows are numbered separately on TMDB: a pick is identified by type + number. */
@@ -705,6 +818,15 @@ final class Recs {
     // MARK: - TMDB
 
     private void fetchList(int p, Map<String, Pick> known) throws Exception {
+        String common = commonQuery();
+        this.common = common;
+        nextPage.clear();
+        exhausted.clear();
+        fetchList(p, known, common);
+    }
+
+    /** The /discover filters for the TV's services in your region (sorted by popularity); throws when there are none. */
+    private String commonQuery() throws Exception {
         // Whether a service we know is on the TV (and not hidden): with none, and none found by name, the error says so.
         boolean any = false;
         for (String[] s : SERVICES) any |= installed(s[2]);
@@ -736,6 +858,14 @@ final class Recs {
         byName = found;
         writeByName(found);
         if (services.isEmpty()) throw new IOException(any ? NO_APPS : NO_KNOWN_APPS);
+        StringBuilder ids = new StringBuilder();
+        for (int id : services.keySet()) ids.append(ids.length() == 0 ? "" : "|").append(id);
+        return "&language=" + lang() + "&watch_region=" + REGION + "&with_watch_monetization_types=" + WATCH_TYPES + "&include_adult=false"
+                + "&sort_by=popularity.desc&with_watch_providers=" + URLEncoder.encode(ids.toString(), "UTF-8")
+                + (Prefs.hideAnimation() ? "&without_genres=" + ANIMATION : "");
+    }
+
+    private void fetchList(int p, Map<String, Pick> known, String common) throws Exception {
         // Signed in to Trakt: what they're in the middle of comes first, then their watchlist and Trakt's
         // recommendations; what they've watched stays out. Trakt failing leaves the picks as they'd be without it.
         // The list keeps the account it was made with (0: none, and always outside :home), so a list the screensaver's
@@ -754,11 +884,6 @@ final class Recs {
             traktActivity = trakt.activity;
             traktCheckedAt = System.currentTimeMillis();
         }
-        StringBuilder ids = new StringBuilder();
-        for (int id : services.keySet()) ids.append(ids.length() == 0 ? "" : "|").append(id);
-        String common = "&language=" + lang() + "&watch_region=" + REGION + "&with_watch_monetization_types=" + WATCH_TYPES + "&include_adult=false"
-                + "&sort_by=popularity.desc&with_watch_providers=" + URLEncoder.encode(ids.toString(), "UTF-8")
-                + (Prefs.hideAnimation() ? "&without_genres=" + ANIMATION : "");
         // 1. Trending this week (TMDB goes by what people are watching and searching for right now), only what is
         //    on one of the TV's services: the details say where (and are then ready).
         List<Pick> hotMovies = new ArrayList<>(), hotShows = new ArrayList<>();
@@ -1169,7 +1294,7 @@ final class Recs {
      */
     private boolean linksOn() {
         String key = watchmodeKey();
-        return !key.isEmpty() && cache.getInt("wm:refused", 0) != key.hashCode() && Prefs.topContent().equals(Prefs.TOP_PICKS);
+        return !key.isEmpty() && cache.getInt("wm:refused", 0) != key.hashCode() && !Prefs.picks().equals(Prefs.PICKS_OFF);
     }
 
     /** Sets p.link from what was looked up before, or looks it up (2 requests of the free plan's 2,500 a month). */
@@ -1399,7 +1524,7 @@ final class Recs {
             synchronized (images) {
                 images.put(p.backdrop, backdrop);
                 if (poster != null) posters.put(p.backdrop, poster);
-                while (images.size() > (forLight ? Prefs.cards() + 7 : 4)) images.remove(images.keySet().iterator().next());
+                while (images.size() > (forLight ? Math.max(Prefs.cards() + 7, 14) : 4)) images.remove(images.keySet().iterator().next());
                 posters.keySet().retainAll(images.keySet());
             }
             notifyListeners();

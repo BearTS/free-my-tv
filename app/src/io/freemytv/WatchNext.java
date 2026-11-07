@@ -19,8 +19,8 @@ import java.util.Set;
 /**
  * What you were watching in your apps, from Android TV's own lists (TvContract, needs READ_TV_LISTINGS): the system
  * Watch Next list, where Prime Video, Disney+, HBO Max, Plex and others note what you left half-way, and the home
- * screen channels some apps publish under the name "Continue Watching" instead (Stremio). Newest first, a few per app,
- * so one show doesn't fill the row. With Config.WATCH_NEXT_NETWORK, a picture given as an http:// or https:// address
+ * screen channels some apps publish under the name "Continue Watching" instead (Stremio). Newest first, up to
+ * Prefs.watchPerApp() per app and Prefs.watchMax() in all. With Config.WATCH_NEXT_NETWORK, a picture given as an http:// or https:// address
  * (Jellyfin clients among them, which point at their own server's image instead of caching one locally) is kept too;
  * see WatchArt for where it's fetched.
  */
@@ -30,7 +30,8 @@ final class WatchNext {
     static final String PERMISSION = "android.permission.READ_TV_LISTINGS";
     /** Declared by apps that write the TV's lists (apps can also write their own rows and Watch Next without it). */
     private static final String WRITE_EPG = "com.android.providers.tv.permission.WRITE_EPG_DATA";
-    static final int PER_APP = 2, MAX = 12;
+    /** Watch Next times before this are in seconds, not milliseconds (Wholphin writes them so): ~1973 in ms. */
+    private static final long SECONDS_BEFORE = 100_000_000_000L;
     /** Channel names that mean "continue watching" (apps name their own channel). */
     private static final Set<String> CHANNEL_NAMES = new HashSet<>(java.util.Arrays.asList(
             "continue watching", "seguir viendo", "continuar viendo", "continuar assistindo", "continue assistindo"));
@@ -92,17 +93,18 @@ final class WatchNext {
             if (off.contains(it.pkg) || hidden.contains(hideKey(it))) i.remove();
         }
         Collections.sort(all, (a, b) -> Long.compare(b.engaged, a.engaged));
+        int perAppMax = Prefs.watchPerApp(), max = Prefs.watchMax();
         List<Item> out = new ArrayList<>();
         Map<String, Integer> perApp = new HashMap<>();
         Set<String> seen = new HashSet<>();
         for (Item it : all) {
             String key = it.pkg + "|" + (it.intent != null ? it.intent : it.title);
             int n = perApp.containsKey(it.pkg) ? perApp.get(it.pkg) : 0;
-            if (n >= PER_APP || !seen.add(key)) continue;
+            if (perAppMax > 0 && n >= perAppMax || !seen.add(key)) continue;
             perApp.put(it.pkg, n + 1);
             it.app = appName(c, it.pkg);
             out.add(it);
-            if (out.size() >= MAX) break;
+            if (out.size() >= max) break;
         }
         return out;
     }
@@ -235,6 +237,7 @@ final class WatchNext {
                 it.duration = number(cur, TvContract.WatchNextPrograms.COLUMN_DURATION_MILLIS);
                 it.position = number(cur, TvContract.WatchNextPrograms.COLUMN_LAST_PLAYBACK_POSITION_MILLIS);
                 it.engaged = number(cur, TvContract.WatchNextPrograms.COLUMN_LAST_ENGAGEMENT_TIME_UTC_MILLIS);
+                if (it.engaged > 0 && it.engaged < SECONDS_BEFORE) it.engaged *= 1000;
                 it.intent = text(cur, TvContract.WatchNextPrograms.COLUMN_INTENT_URI);
                 out.add(it);
             }

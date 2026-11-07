@@ -299,7 +299,7 @@ public class SettingsActivity extends Activity {
                 }
                 @Override public int focused() { return focus + 1; }
                 @Override public void focus(int id) {
-                    if (screen == HOME_SETTINGS && pickScroll + focus == TOP_ROW && id - 1 != focus) commitWatch();
+                    if (screen == HOME_SETTINGS && pickScroll + focus == WATCH_ON_ROW && id - 1 != focus) commitWatch();
                     focus = id - 1;
                     invalidate();
                 }
@@ -856,9 +856,9 @@ public class SettingsActivity extends Activity {
             return -1;
         }
 
-        /** As the arrows and TalkBack do: leaving "Top of the screen" on Continue Watching asks for its permission. */
+        /** As the arrows and TalkBack do: leaving the Continue Watching row's switch on asks for its permission. */
         private void leaveTopRow(int row) {
-            if (screen == HOME_SETTINGS && pickScroll + focus == TOP_ROW && row != TOP_ROW) commitWatch();
+            if (screen == HOME_SETTINGS && pickScroll + focus == WATCH_ON_ROW && row != WATCH_ON_ROW) commitWatch();
         }
 
         private void wheel(int dir) {
@@ -871,7 +871,7 @@ public class SettingsActivity extends Activity {
             } else if (dir < 0 && focus > 0) {
                 focus--;
             }
-            if (screen == HOME_SETTINGS && before == TOP_ROW && pickScroll + focus != TOP_ROW) commitWatch();
+            if (screen == HOME_SETTINGS && before == WATCH_ON_ROW && pickScroll + focus != WATCH_ON_ROW) commitWatch();
             invalidate();
             spoken.focusMoved();
         }
@@ -880,14 +880,14 @@ public class SettingsActivity extends Activity {
             boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
             switch (e.getKeyCode()) {
                 case KeyEvent.KEYCODE_DPAD_UP:
-                    if (down && screen == HOME_SETTINGS && pickScroll + focus == TOP_ROW) commitWatch();
+                    if (down && screen == HOME_SETTINGS && pickScroll + focus == WATCH_ON_ROW) commitWatch();
                     if (down && focus > 0) focus--;
                     else if (down && scrolling() && pickScroll > 0) pickScroll--;
                     invalidate();
                     spoken.focusMoved();
                     return true;
                 case KeyEvent.KEYCODE_DPAD_DOWN:
-                    if (down && screen == HOME_SETTINGS && pickScroll + focus == TOP_ROW) commitWatch();
+                    if (down && screen == HOME_SETTINGS && pickScroll + focus == WATCH_ON_ROW) commitWatch();
                     if (down && focus < rowCount() - 1) focus++;
                     else if (down && scrolling() && pickScroll + rowCount() < listSize()) pickScroll++;
                     invalidate();
@@ -948,9 +948,7 @@ public class SettingsActivity extends Activity {
                                 focus = 1;
                                 screen = PICKS;
                             } else if (screen == WATCH_APPS) {
-                                focus = WATCH_ROW;   // on the list's first screen
-                                pickScroll = 0;
-                                screen = HOME_SETTINGS;
+                                showSettingsRow(WATCH_ROW);
                             } else {
                                 focus = screen == HOME_SETTINGS ? 2 : screen == SHELF_EDIT ? (editingTop ? 4 : 3)
                                         : screen == REMOTE_KEYS ? 5 : screen == POWER ? 6 : 0;
@@ -971,14 +969,15 @@ public class SettingsActivity extends Activity {
 
         private static final String[] UNITS = {"auto", "C", "F"}, THEMES = {"auto", "light", "dark"},
                 CLOCKS = {"auto", "24", "12"};
-        /** Home Settings: language, temperature, theme, clock, my photos, sounds, top of the screen, picks, Continue
-         *  Watching's apps, watch from the screensaver, Android apps, status icons, Recent Apps, weather, city, forecast,
+        /** Home Settings: language, temperature, theme, clock, my photos, sounds, top picks, picks, Continue Watching
+         *  (the row, cards on screen, the most from one app, the most in the row, its apps), watch from the screensaver, Android apps, status icons, Recent Apps, weather, city, forecast,
          *  now playing, Home Assistant (only on builds with its address), quotes, one row per coin, then the TMDB and Watchmode keys and
          *  updates (the last row). */
-        private static final int CLOCK_ROW = 3, PHOTOS_ROW = 4, TOP_ROW = 6, PICKS_ROW = 7, WATCH_ROW = 8,
-                SAVER_ROW = 9, ANDROID_APPS_ROW = 10, STATUS_ICONS_ROW = 11, RECENTS_ROW = 12, POWER_ON_ROW = 13,
-                WEATHER_ROW = 14, CITY_ROW = 15, FORECAST_ROW = 16, PLAYING_ROW = 17, HOME_ROW = Config.HOME_ASSISTANT ? 18 : -1,
-                QUOTES_ROW = Config.HOME_ASSISTANT ? 19 : 18, COIN_ROWS = QUOTES_ROW + 1;
+        private static final int CLOCK_ROW = 3, PHOTOS_ROW = 4, TOP_ROW = 6, PICKS_ROW = 7, WATCH_ON_ROW = 8,
+                WATCH_CARDS_ROW = 9, WATCH_PER_APP_ROW = 10, WATCH_MAX_ROW = 11, WATCH_ROW = 12,
+                SAVER_ROW = 13, ANDROID_APPS_ROW = 14, STATUS_ICONS_ROW = 15, RECENTS_ROW = 16, POWER_ON_ROW = 17,
+                WEATHER_ROW = 18, CITY_ROW = 19, FORECAST_ROW = 20, PLAYING_ROW = 21, HOME_ROW = Config.HOME_ASSISTANT ? 22 : -1,
+                QUOTES_ROW = Config.HOME_ASSISTANT ? 23 : 22, COIN_ROWS = QUOTES_ROW + 1;
         /** No "home" on Xiaomi TVs: their remote sends one Home press as a burst of presses (HomeView.BURST_MS). */
         private static final String[] RECENTS = RemoteKeys.XIAOMI ? new String[] {"off", "drawer"}
                 : new String[] {"off", "drawer", "home"};
@@ -997,8 +996,12 @@ public class SettingsActivity extends Activity {
             l.add(Ui.tr("Clock"));
             l.add(Ui.tr("My Photos"));
             l.add(Ui.tr("Navigation sounds"));
-            l.add(Ui.tr("Top of the screen"));
+            l.add(Ui.tr("Top picks"));
             l.add(Ui.tr("Picks"));
+            l.add(Ui.tr("Continue Watching row"));
+            l.add(Ui.tr("Cards on screen"));
+            l.add(Ui.tr("Most from one app"));
+            l.add(Ui.tr("Most in the row"));
             l.add(Ui.tr("Continue Watching apps"));
             l.add(Ui.tr("Watch from the screensaver"));
             l.add(Ui.tr("Android apps"));
@@ -1103,10 +1106,14 @@ public class SettingsActivity extends Activity {
             v[5] = onOff(Prefs.sounds());
             v[PICKS_ROW] = "›";   // opens its own screen: Picks per tab and Picks from
             v[SAVER_ROW] = onOff(Prefs.saverWatch());
-            String top = Prefs.topContent();
-            v[TOP_ROW] = top.equals(Prefs.TOP_CONTINUE) ? Ui.tr("Continue Watching")
-                    : top.equals(Prefs.TOP_NONE) ? Ui.tr("Clock")
-                    : Ui.tr("Picks");
+            String picks = Prefs.picks();
+            v[TOP_ROW] = picks.equals(Prefs.PICKS_OFF) ? Ui.tr("Off")
+                    : picks.equals(Prefs.PICKS_FIXED) ? Ui.plural("plural|one:{n} per tab|other:{n} per tab", Prefs.cards())
+                    : Ui.tr("Endless");
+            v[WATCH_ON_ROW] = onOff(Prefs.watchRow());
+            v[WATCH_CARDS_ROW] = String.valueOf(Prefs.watchCards());
+            v[WATCH_PER_APP_ROW] = Prefs.watchPerApp() == 0 ? Ui.tr("No limit") : String.valueOf(Prefs.watchPerApp());
+            v[WATCH_MAX_ROW] = String.valueOf(Prefs.watchMax());
             v[WATCH_ROW] = watchCount();
             String rec = Prefs.recents();
             v[RECENTS_ROW] = rec.equals("home") ? Ui.tr("recents|Drawer and Home twice") : rec.equals("drawer") ? Ui.tr("recents|In the drawer") : Ui.tr("Off");
@@ -1455,14 +1462,28 @@ public class SettingsActivity extends Activity {
                 case PICKS_ROW: return;
                 case SAVER_ROW: Prefs.setSaverWatch(!Prefs.saverWatch()); break;
                 case TOP_ROW: {
-                    int at = java.util.Arrays.asList(Prefs.TOP_CONTENT).indexOf(Prefs.topContent());
-                    String next = Prefs.TOP_CONTENT[(at + dir + Prefs.TOP_CONTENT.length) % Prefs.TOP_CONTENT.length];
-                    Prefs.setTopContent(next);
+                    int at = java.util.Arrays.asList(Prefs.PICKS_MODES).indexOf(Prefs.picks());
+                    Prefs.setPicks(Prefs.PICKS_MODES[(at + dir + Prefs.PICKS_MODES.length) % Prefs.PICKS_MODES.length]);
+                    break;
+                }
+                case WATCH_ON_ROW:
+                    Prefs.setWatchRow(!Prefs.watchRow());
                     handler.removeCallbacks(askWatch);
                     watchGrantPending = false;
                     watchPickPending = true;
                     break;
-                }
+                case WATCH_CARDS_ROW:
+                    if (watchLocked()) return;
+                    Prefs.setWatchCards(step(Prefs.WATCH_CARDS, Prefs.watchCards(), dir));
+                    break;
+                case WATCH_PER_APP_ROW:
+                    if (watchLocked()) return;
+                    Prefs.setWatchPerApp(step(Prefs.WATCH_PER_APP, Prefs.watchPerApp(), dir));
+                    break;
+                case WATCH_MAX_ROW:
+                    if (watchLocked()) return;
+                    Prefs.setWatchMax(step(Prefs.WATCH_MAX, Prefs.watchMax(), dir));
+                    break;
                 case WATCH_ROW: return;   // a list of its own (OK)
                 case RECENTS_ROW: {
                     int at = java.util.Arrays.asList(RECENTS).indexOf(Prefs.recents());
@@ -1501,6 +1522,13 @@ public class SettingsActivity extends Activity {
                     break;
             }
             HomeData.get(getContext()).settingsChanged();
+        }
+
+        /** The next (or previous) of `choices` after `now`, wrapping around. */
+        private static int step(int[] choices, int now, int dir) {
+            int at = 0;
+            for (int i = 0; i < choices.length; i++) if (choices[i] == now) at = i;
+            return choices[(at + dir + choices.length) % choices.length];
         }
 
         private void askCity() {
@@ -1983,7 +2011,7 @@ public class SettingsActivity extends Activity {
             if (!watchPickPending) return;
             watchPickPending = false;
             handler.removeCallbacks(askWatch);
-            if (Prefs.topContent().equals(Prefs.TOP_CONTINUE) && !WatchNext.allowed(getContext())) {
+            if (Prefs.watchRow() && !WatchNext.allowed(getContext())) {
                 HomeMode.requestWatchGrant(getContext());
                 watchGrantPending = true;
                 handler.postDelayed(askWatch, WATCH_GRANT_MS);
@@ -1994,13 +2022,18 @@ public class SettingsActivity extends Activity {
         private void askWatch() {
             if (!running) return;
             watchGrantPending = false;
-            if (Prefs.topContent().equals(Prefs.TOP_CONTINUE) && !WatchNext.allowed(getContext())) {
+            if (Prefs.watchRow() && !WatchNext.allowed(getContext())) {
                 activity.requestPermissions(new String[] {WatchNext.PERMISSION}, 1);
             }
         }
 
         private boolean watchLocked() {
-            return !Prefs.topContent().equals(Prefs.TOP_CONTINUE);
+            return !Prefs.watchRow();
+        }
+
+        /** The Continue Watching rows that only mean something with the row on. */
+        private static boolean watchDetailRow(int row) {
+            return row >= WATCH_CARDS_ROW && row <= WATCH_ROW;
         }
 
         /** Looks for the apps that can feed Continue Watching, in the background (only here, never on the home screen). */
@@ -2305,7 +2338,7 @@ public class SettingsActivity extends Activity {
                 rowRect.set(LIST_X * k, y, LIST_R * k, y + LIST_ROW_H * k);
                 float f = drawRowBackground(c, i);
                 rowLabel.setColor(blend(0xF2FFFFFF, INK, f));
-                boolean locked = unavailable(i) != null, watchOff = !keys && from + i == WATCH_ROW && watchLocked();
+                boolean locked = unavailable(i) != null, watchOff = !keys && watchDetailRow(from + i) && watchLocked();
                 if (locked) values[from + i] = Ui.tr("Unavailable");
                 rowValue.setColor(blend(locked ? 0x59FFFFFF : 0xB3FFFFFF, locked ? 0x591C1C1E : 0xB31C1C1E, f));
                 if (watchOff) rowValue.setColor(blend(0x59FFFFFF, 0x591C1C1E, f));

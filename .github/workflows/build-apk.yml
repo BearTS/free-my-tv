@@ -7,7 +7,7 @@ name: Build APK (personal fork)
 on:
   workflow_dispatch:
   push:
-    branches: [remote-watch-next-posters]
+    branches: [remote-watch-next-posters, home-redesign]
 
 permissions:
   contents: read
@@ -31,6 +31,7 @@ jobs:
         run: |
           cp config.example.properties config.properties
           sed -i 's/^watch_next_network=.*/watch_next_network=true/' config.properties
+          sed -i 's/^theme=.*/theme=dark/' config.properties
       - name: Signing key
         run: echo "${{ secrets.FREEMYTV_KEYSTORE_B64 }}" | base64 -d > freemytv-fork.keystore
       - name: Build
