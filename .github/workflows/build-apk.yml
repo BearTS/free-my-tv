@@ -32,6 +32,9 @@ jobs:
           cp config.example.properties config.properties
           sed -i 's/^watch_next_network=.*/watch_next_network=true/' config.properties
           sed -i 's/^theme=.*/theme=dark/' config.properties
+          # Indiranagar, Bengaluru: the weather, the night look and which streaming catalogue (India) the picks use.
+          sed -i -e 's/^tmdb_region=.*/tmdb_region=IN/' -e 's/^latitude=.*/latitude=12.9784/' -e 's/^longitude=.*/longitude=77.6408/' \
+            -e 's/^city=.*/city=Bengaluru/' -e 's/^temperature=.*/temperature=C/' config.properties
       - name: Signing key
         run: echo "${{ secrets.FREEMYTV_KEYSTORE_B64 }}" | base64 -d > freemytv-fork.keystore
       - name: Build
