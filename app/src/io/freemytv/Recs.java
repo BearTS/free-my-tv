@@ -57,6 +57,12 @@ final class Recs {
         int mine;               // Trakt: PROGRESS, LIKED (watchlist, recommended) or 0 (TMDB's)
         boolean detailed;
         java.io.File photo;     // one of your own photos (Photos): no title, no caption
+        String overview = "";   // TMDB's summary
+        double rating;          // TMDB's average vote (0 = none yet)
+        int votes;
+        String imdbId;          // "tt…", for the ratings (OMDb) and Stremio
+        String imdbRating, rtRating;   // "8.1" and "92%" from OMDb (omdb_key), or null
+        boolean ratingsTried;   // OMDb asked once for this title
     }
 
     interface Listener { void onRecs(); }
@@ -75,7 +81,7 @@ final class Recs {
     /** How often Trakt is asked whether the account changed (marked watched, the watchlist): one small request. */
     private static final long TRAKT_EVERY = 10 * 60_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 6;   // 6: lists of up to POOL + TRAKT_MAX
+    private static final int CACHE_VERSION = 7;   // 7: summaries and ratings
     /** TMDB's titles in the list (trending, then the new releases), as on main. */
     private static final int POOL = 24;
     /** Trakt's titles in the list: about what the tabs show of them (now(): up to 2 in 5 in progress, 3 in 5 liked). */
@@ -317,6 +323,78 @@ final class Recs {
             return Ui.trf("Couldn't reach TMDB: {error}", "error", e.getMessage());
         } catch (RuntimeException e) {   // never out of KeyPage's thread (the watchdog counts it); the name only: no header value
             return Ui.trf("Couldn't reach TMDB: {error}", "error", e.getClass().getSimpleName());
+        }
+    }
+
+    private static volatile String cachedOmdbKey = "";
+    private static volatile int omdbKeyVersion = -1;
+
+    /** The OMDb key given on the TV, else the one built in from config.properties ("" for neither). */
+    static String omdbKey() {
+        int version = Prefs.version;
+        if (version != omdbKeyVersion) {
+            String given = Prefs.omdbKey();
+            cachedOmdbKey = given.isEmpty() ? Config.OMDB_KEY.trim() : given;
+            omdbKeyVersion = version;
+        }
+        return cachedOmdbKey;
+    }
+
+    /** Asks OMDb whether a key works (with a title it surely has), before it's saved: null if it does, else why not. */
+    static String checkOmdbKey(String key) {
+        try {
+            JSONObject o = omdb("tt0111161", key);
+            if (!"True".equals(o.optString("Response"))) return Ui.tr("OMDb refused this key.");
+            return null;
+        } catch (IOException | org.json.JSONException | RuntimeException e) {
+            String message = String.valueOf(e.getMessage());
+            if ("OMDb returned HTTP 401".equals(message)) return Ui.tr("OMDb refused this key.");
+            return Ui.trf("Couldn't reach OMDb: {error}", "error", message.startsWith("OMDb returned") ? message : e.getClass().getSimpleName());
+        }
+    }
+
+    /** OMDb's answer for an IMDb id. The key is in the URL: only our own message or the error's name is ever logged. */
+    private static JSONObject omdb(String imdbId, String key) throws IOException, org.json.JSONException {
+        HttpURLConnection c = (HttpURLConnection) new URL("https://www.omdbapi.com/?i=" + URLEncoder.encode(imdbId, "UTF-8")
+                + "&apikey=" + URLEncoder.encode(key, "UTF-8")).openConnection();
+        c.setConnectTimeout(8000);
+        c.setReadTimeout(8000);
+        c.setInstanceFollowRedirects(false);
+        try {
+            int code = c.getResponseCode();
+            if (code != 200) throw new IOException("OMDb returned HTTP " + code);
+            return new JSONObject(read(c.getInputStream()));
+        } finally {
+            c.disconnect();
+        }
+    }
+
+    /** IMDb's rating and Rotten Tomatoes' score for a title, once (with an OMDb key and the title's IMDb id). */
+    private void fetchRatings(Pick p) {
+        String key = omdbKey();
+        if (key.isEmpty() || p.ratingsTried || p.imdbId == null || !p.imdbId.startsWith("tt")) return;
+        if (cache.getInt("omdb:refused", 0) == key.hashCode()) return;
+        try {
+            JSONObject o = omdb(p.imdbId, key);
+            if (!"True".equals(o.optString("Response"))) {
+                String error = o.optString("Error");
+                if (error.toLowerCase(Locale.ROOT).contains("key")) {   // invalid or over its daily limit: not again until it changes
+                    if (error.toLowerCase(Locale.ROOT).contains("invalid")) cache.edit().putInt("omdb:refused", key.hashCode()).apply();
+                    return;
+                }
+                p.ratingsTried = true;
+                return;
+            }
+            String imdb = o.optString("imdbRating");
+            p.imdbRating = imdb.isEmpty() || "N/A".equals(imdb) ? null : imdb;
+            JSONArray list = o.optJSONArray("Ratings");
+            for (int i = 0; list != null && i < list.length(); i++) {
+                JSONObject r = list.optJSONObject(i);
+                if (r != null && "Rotten Tomatoes".equals(r.optString("Source"))) p.rtRating = r.optString("Value");
+            }
+            p.ratingsTried = true;
+        } catch (Exception e) {
+            AppLog.w("omdb: " + (e instanceof IOException ? e.getMessage() : e.getClass().getSimpleName()));
         }
     }
 
@@ -716,10 +794,13 @@ final class Recs {
 
     /** Endless picks: a title near the screen without its details (genre, its app) gets them in the background. */
     void ensure(Pick p) {
-        if (p == null || p.detailed || p.id < 0 || !hasKey(context) || !detailing.add(key(p))) return;
+        if (p == null || p.id < 0 || !hasKey(context)) return;
+        boolean ratings = p.detailed && !p.ratingsTried && p.imdbId != null && !omdbKey().isEmpty();
+        if (p.detailed && !ratings || !detailing.add(key(p))) return;
         io.execute(() -> {
             try {
-                fetchDetails(p);
+                if (!p.detailed) fetchDetails(p);
+                else fetchRatings(p);
                 save();
             } catch (Exception e) {
                 AppLog.w("recs details: " + e.getMessage());
@@ -1012,6 +1093,13 @@ final class Recs {
         p.pkg = k.pkg;
         p.servicePkg = k.servicePkg;
         p.link = k.link;
+        p.overview = k.overview;
+        p.rating = k.rating;
+        p.votes = k.votes;
+        p.imdbId = k.imdbId;
+        p.imdbRating = k.imdbRating;
+        p.rtRating = k.rtRating;
+        p.ratingsTried = k.ratingsTried;
         String meta = k.meta == null ? "" : k.meta;
         if (k.tag != null && meta.startsWith(k.tag)) meta = meta.substring(k.tag.length()).replaceFirst("^ · ", "");
         p.meta = p.tag == null ? meta : meta.isEmpty() ? p.tag : p.tag + " · " + meta;
@@ -1105,8 +1193,11 @@ final class Recs {
     /** Genre, runtime (or seasons) and the service it's on, among the ones the TV has. */
     private void fetchDetails(Pick p) throws Exception {
         JSONObject o = get("/" + p.kind + "/" + p.id
-                + "?language=" + lang() + "&append_to_response=watch/providers,images" + (Config.OPEN_IN_STREMIO ? ",external_ids" : "") + "&include_image_language=null," + Ui.language.replaceAll("-.*", "") + ",en");
+                + "?language=" + lang() + "&append_to_response=watch/providers,images,external_ids&include_image_language=null," + Ui.language.replaceAll("-.*", "") + ",en");
         p.title = title(p, o);
+        p.overview = o.optString("overview", "");
+        p.rating = o.optDouble("vote_average", 0);
+        p.votes = o.optInt("vote_count");
         String poster = o.optString("poster_path", "");
         if (!poster.isEmpty() && !"null".equals(poster)) p.poster = poster;
         String best = bestBackdrop(o.optJSONObject("images"));
@@ -1138,6 +1229,7 @@ final class Recs {
         if (p.tag != null) parts.add(0, p.tag);
         JSONObject ext = o.optJSONObject("external_ids");
         String imdb = ext == null ? "" : ext.optString("imdb_id", "");
+        p.imdbId = imdb.startsWith("tt") ? imdb : null;
         String nuvio = p.app == null ? null : nuvio();
         if (nuvio != null) {     // the meta still names the TV's app it's on
             p.servicePkg = p.pkg;   // its switch in Picks from (and the app itself) still decide whether it shows
@@ -1152,6 +1244,7 @@ final class Recs {
         }
         p.meta = String.join(" · ", parts);
         p.detailed = true;
+        fetchRatings(p);
     }
 
     /**
@@ -1595,7 +1688,10 @@ final class Recs {
                         .put("poster", p.poster == null ? "" : p.poster).put("link", p.link == null ? "" : p.link)
                         .put("meta", p.meta).put("app", p.app == null ? "" : p.app).put("pkg", p.pkg == null ? "" : p.pkg)
                         .put("servicePkg", p.servicePkg == null ? "" : p.servicePkg)
-                        .put("tag", p.tag == null ? "" : p.tag).put("mine", p.mine).put("detailed", p.detailed));
+                        .put("tag", p.tag == null ? "" : p.tag).put("mine", p.mine).put("detailed", p.detailed)
+                        .put("overview", p.overview == null ? "" : p.overview).put("rating", p.rating).put("votes", p.votes)
+                        .put("imdbId", p.imdbId == null ? "" : p.imdbId).put("imdbRating", p.imdbRating == null ? "" : p.imdbRating)
+                        .put("rtRating", p.rtRating == null ? "" : p.rtRating).put("ratingsTried", p.ratingsTried));
             }
             SharedPreferences.Editor e = cache.edit().putString("picks", a.toString()).putInt("period", period).putLong("listAt", listAt)
                     .putString("traktActivity", traktActivity).putLong("traktStamp", traktStamp)
@@ -1629,6 +1725,13 @@ final class Recs {
             p.tag = o.optString("tag").isEmpty() ? null : o.optString("tag");
             p.mine = o.optInt("mine");
             p.detailed = o.optBoolean("detailed");
+            p.overview = o.optString("overview");
+            p.rating = o.optDouble("rating", 0);
+            p.votes = o.optInt("votes");
+            p.imdbId = o.optString("imdbId").isEmpty() ? null : o.optString("imdbId");
+            p.imdbRating = o.optString("imdbRating").isEmpty() ? null : o.optString("imdbRating");
+            p.rtRating = o.optString("rtRating").isEmpty() ? null : o.optString("rtRating");
+            p.ratingsTried = o.optBoolean("ratingsTried");
             out.add(p);
         }
         return out;

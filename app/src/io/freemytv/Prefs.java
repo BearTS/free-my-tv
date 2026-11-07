@@ -436,6 +436,14 @@ final class Prefs {
         version++;
     }
 
+    /** The OMDb key given on the TV (IMDb and Rotten Tomatoes ratings on the picks), or "": then config.properties' one. */
+    static String omdbKey() { return app == null ? "" : sp().getString("omdbKey", "").trim(); }
+
+    static void setOmdbKey(String key) {
+        sp().edit().putString("omdbKey", key).commit();
+        version++;
+    }
+
     // MARK: - Shelf
 
     /** Packages on the home shelf, in order; null until the user edits it (then the built-in list applies). */

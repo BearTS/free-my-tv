@@ -27,7 +27,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * The page a phone opens from the QR code in Home Settings > TMDB key or Watchmode key, to send the key instead of typing it with the
+ * The page a phone opens from the QR code in Home Settings > TMDB key, Watchmode key or OMDb key, to send the key instead of typing it with the
  * remote: http://<the TV's address on the home network>:<a port the system picks>/<a one-time random token>. It takes
  * one key (one POST), has the TV check it with its service, answers with the result and stops; after 5 minutes it stops
  * anyway. Plain HTTP, since a phone can't check a certificate for a LAN address; it listens only on that address. The
@@ -39,7 +39,7 @@ final class KeyPage {
         /** A phone sent a key: the TV checks it now. */
         void checking();
         /** Checks the key and saves it: null when it's saved, else why not (the phone shows it too). */
-        String accept(String key, boolean watchmode);
+        String accept(String key, int kind);
         /** The page stopped: after the key, after 5 minutes (expired) or close(). Called once. */
         void closed(KeyPage page, boolean expired);
     }
@@ -53,14 +53,16 @@ final class KeyPage {
     private final ServerSocket server;
     private final String path;
     private final Listener listener;
-    private final boolean watchmode;   // the Watchmode key's page, else TMDB's
+    /** Which key the page takes. */
+    static final int TMDB = 0, WATCHMODE = 1, OMDB = 2;
+    private final int kind;
     private final AtomicBoolean taken = new AtomicBoolean();      // a key came: the one this page takes
     private final AtomicInteger answering = new AtomicInteger();   // connections being answered
     private volatile boolean closed;
 
-    KeyPage(InetAddress lan, boolean watchmode, Listener listener) throws IOException {
+    KeyPage(InetAddress lan, int kind, Listener listener) throws IOException {
         this.listener = listener;
-        this.watchmode = watchmode;
+        this.kind = kind;
         byte[] random = new byte[12];
         new SecureRandom().nextBytes(random);
         path = "/" + Base64.getUrlEncoder().withoutPadding().encodeToString(random);
@@ -198,7 +200,7 @@ final class KeyPage {
             return false;
         }
         listener.checking();
-        String why = listener.accept(field(new String(body, StandardCharsets.US_ASCII), "key"), watchmode);
+        String why = listener.accept(field(new String(body, StandardCharsets.US_ASCII), "key"), kind);
         respond(out, "200 OK", "text/html; charset=utf-8", result(why));
         return true;
     }
@@ -259,7 +261,17 @@ final class KeyPage {
     /** How to get a key, then the field to paste it in. */
     private byte[] form() {
         StringBuilder b = top();
-        if (watchmode) {
+        if (kind == OMDB) {
+            b.append("<p>").append(esc(Ui.tr("The key adds IMDb and Rotten Tomatoes ratings to the picks.")))
+                    .append("</p><p>").append(esc(Ui.tr("Free, and it takes two minutes:"))).append("</p><ol><li>")
+                    .append(esc(Ui.tr("Request a free key at omdbapi.com."))).append("</li><li>")
+                    .append(esc(Ui.tr("Open the link in OMDb's email to turn the key on."))).append("</li><li>")
+                    .append(esc(Ui.tr("Paste the key here:"))).append("</li></ol>")
+                    .append("<p><a class=b href=\"https://www.omdbapi.com/apikey.aspx\" target=_blank rel=noreferrer>")
+                    .append(esc(Ui.tr("Open OMDb's key page"))).append("</a></p>");
+            return bottom(keyField(b, Ui.tr("OMDb key")));
+        }
+        if (kind == WATCHMODE) {
             b.append("<p>").append(esc(Ui.tr("The key makes a pick open the title's page in its app, where the app allows it.")))
                     .append("</p><p>").append(esc(Ui.tr("Free, and it takes two minutes:"))).append("</p><ol><li>")
                     .append(esc(Ui.tr("Create an account at api.watchmode.com."))).append("</li><li>")
@@ -308,7 +320,7 @@ final class KeyPage {
                 .append("border-radius:12px;background:#f5f5f7;color:#1c1c1e;font:600 17px system-ui,sans-serif;text-align:center;")
                 .append("text-decoration:none}.b{background:#3a3a3c;color:#f5f5f7}.s{color:#98989d;font-size:15px}")
                 .append(".ok{color:#7ee08a;font-size:20px}.no{color:#ffc266;font-size:20px}</style>")
-                .append("<h1>").append(esc(watchmode ? Ui.tr("Watchmode key") : Ui.tr("TMDB key"))).append(" · Free My TV</h1>");
+                .append("<h1>").append(esc(kind == OMDB ? Ui.tr("OMDb key") : kind == WATCHMODE ? Ui.tr("Watchmode key") : Ui.tr("TMDB key"))).append(" · Free My TV</h1>");
     }
 
     private static byte[] bottom(StringBuilder b) {

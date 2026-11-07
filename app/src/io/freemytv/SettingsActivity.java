@@ -191,7 +191,7 @@ public class SettingsActivity extends Activity {
         // TMDB key: the page a phone opens (KeyPage), its QR code and what the screen says, all made when they change,
         // never while drawing.
         private KeyPage keyPage;
-        private boolean keyWatchmode;   // the screen is the Watchmode key's, else TMDB's
+        private int keyKind = KeyPage.TMDB;   // which key the screen is for
         private Bitmap keyQr;
         private boolean keyChecking;
         private int[] keyRowIds = new int[0];
@@ -1020,6 +1020,7 @@ public class SettingsActivity extends Activity {
             if (dollar()) l.add(Ui.tr("Dollar"));
             l.add(Ui.tr("TMDB key"));
             l.add(Ui.tr("Watchmode key"));
+            l.add(Ui.tr("OMDb key"));
             l.add(Ui.tr("Updates"));
             return l.toArray(new String[0]);
         }
@@ -1030,11 +1031,34 @@ public class SettingsActivity extends Activity {
         }
 
         private int keyRow() {
-            return updatesRow() - 2;
+            return updatesRow() - 3;
         }
 
         private int watchmodeRow() {
+            return updatesRow() - 2;
+        }
+
+        private int omdbRow() {
             return updatesRow() - 1;
+        }
+
+        /** The row of a key's screen (KeyPage.TMDB, WATCHMODE, OMDB). */
+        private int keyRowOf(int kind) {
+            return kind == KeyPage.OMDB ? omdbRow() : kind == KeyPage.WATCHMODE ? watchmodeRow() : keyRow();
+        }
+
+        private static String keyName(int kind) {
+            return kind == KeyPage.OMDB ? Ui.tr("OMDb key") : kind == KeyPage.WATCHMODE ? Ui.tr("Watchmode key") : Ui.tr("TMDB key");
+        }
+
+        private static String checkingText(int kind) {
+            return kind == KeyPage.OMDB ? Ui.tr("Checking the key with OMDb…")
+                    : kind == KeyPage.WATCHMODE ? Ui.tr("Checking the key with Watchmode…") : Ui.tr("Checking the key with TMDB…");
+        }
+
+        /** The key given on the TV for that screen ("" when none). */
+        private static String givenKey(int kind) {
+            return kind == KeyPage.OMDB ? Prefs.omdbKey() : kind == KeyPage.WATCHMODE ? Prefs.watchmodeKey() : Prefs.tmdbKey();
         }
 
         /** A key's row: "Not set", or the key's last 4 characters (all that's ever shown of it). */
@@ -1128,9 +1152,10 @@ public class SettingsActivity extends Activity {
             if (HOME_ROW >= 0) v[HOME_ROW] = onOff(HomeAssistant.on(getContext()));
             v[QUOTES_ROW] = onOff(Prefs.quotes());
             // No quotes widget, nowhere to show prices: the coins read as off (and stay locked) until it is back on.
-            for (int i = COIN_ROWS; i < v.length - 3; i++) v[i] = onOff(Prefs.quotes() && Prefs.coin(i - COIN_ROWS));
-            v[v.length - 3] = keyValue(Recs.key());
-            v[v.length - 2] = keyValue(Recs.watchmodeKey());
+            for (int i = COIN_ROWS; i < v.length - 4; i++) v[i] = onOff(Prefs.quotes() && Prefs.coin(i - COIN_ROWS));
+            v[v.length - 4] = keyValue(Recs.key());
+            v[v.length - 3] = keyValue(Recs.watchmodeKey());
+            v[v.length - 2] = keyValue(Recs.omdbKey());
             v[v.length - 1] = updatesValue();
             return v;
         }
@@ -1601,15 +1626,19 @@ public class SettingsActivity extends Activity {
             return id == K_NEW ? Ui.tr("New code") : id == K_TYPE ? Ui.tr("Type it with the remote") : Ui.tr("Remove the key");
         }
 
-        private void openKeyScreen(boolean watchmode) {
-            keyWatchmode = watchmode;
+        private void openKeyScreen(int kind) {
+            keyKind = kind;
             screen = TMDB_KEY;
             pickScroll = 0;
             focus = 0;
             keyStatus = null;
             keyRowIds = new int[0];
             // The steps, in the TV's language, beside the code; the phone's page says the same.
-            String steps = Ui.tr("Free, and it takes two minutes:") + (watchmode
+            String steps = Ui.tr("Free, and it takes two minutes:") + (kind == KeyPage.OMDB
+                    ? "\n1. " + Ui.tr("Request a free key at omdbapi.com.")
+                    + "\n2. " + Ui.tr("Open the link in OMDb's email to turn the key on.")
+                    + "\n3. " + Ui.tr("Scan this code with your phone and paste the key there.")
+                    : kind == KeyPage.WATCHMODE
                     ? "\n1. " + Ui.tr("Create an account at api.watchmode.com.")
                     + "\n2. " + Ui.tr("Copy the API key it gives you.")
                     + "\n3. " + Ui.tr("Scan this code with your phone and paste the key there.")
@@ -1618,7 +1647,8 @@ public class SettingsActivity extends Activity {
                     + "\n3. " + Ui.tr("Scan this code with your phone and paste the API Read Access Token (or the API Key) there."));
             int width = Math.round((LIST_R - LIST_X - 60 - QR_SIDE - 40) * k);
             keySteps = StaticLayout.Builder.obtain(steps, 0, steps.length(), notice, width).setLineSpacing(6 * k, 1).build();
-            String purpose = watchmode ? Ui.tr("The key makes a pick open the title's page in its app, where the app allows it.")
+            String purpose = kind == KeyPage.OMDB ? Ui.tr("The key adds IMDb and Rotten Tomatoes ratings to the picks.")
+                    : kind == KeyPage.WATCHMODE ? Ui.tr("The key makes a pick open the title's page in its app, where the app allows it.")
                     : Ui.tr("The key brings the picks: what's trending on your streaming apps, with their photos on the screensaver.");
             keyPurpose = StaticLayout.Builder.obtain(purpose, 0, purpose.length(), notice, Math.round((LIST_R - LIST_X - 60) * k))
                     .setMaxLines(3).setEllipsize(TextUtils.TruncateAt.END).build();
@@ -1628,7 +1658,7 @@ public class SettingsActivity extends Activity {
 
         private void closeKeyScreen() {
             stopKeyPage();
-            showSettingsRow(keyWatchmode ? watchmodeRow() : keyRow());
+            showSettingsRow(keyRowOf(keyKind));
         }
 
         /**
@@ -1650,7 +1680,7 @@ public class SettingsActivity extends Activity {
                 setKeyStatus(Ui.tr("The TV isn't on a network: connect it, or type the key."), true);
             } else {
                 try {
-                    keyPage = new KeyPage(lan, keyWatchmode, keyListener);
+                    keyPage = new KeyPage(lan, keyKind, keyListener);
                     keyQr = qrBitmap(Qr.encode(keyPage.url));
                     // While the code waits (5 minutes at most), the TV's screensaver doesn't cover it.
                     activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -1685,13 +1715,13 @@ public class SettingsActivity extends Activity {
             @Override public void checking() {
                 handler.post(() -> {
                     keyChecking = true;
-                    setKeyStatus(keyWatchmode ? Ui.tr("Checking the key with Watchmode…") : Ui.tr("Checking the key with TMDB…"), false);
+                    setKeyStatus(checkingText(keyKind), false);
                     keyRowsChanged();
                 });
             }
 
-            @Override public String accept(String key, boolean watchmode) {
-                return watchmode ? saveWatchmodeKey(key) : saveKey(key);
+            @Override public String accept(String key, int kind) {
+                return kind == KeyPage.OMDB ? saveOmdbKey(key) : kind == KeyPage.WATCHMODE ? saveWatchmodeKey(key) : saveKey(key);
             }
 
             @Override public void closed(KeyPage page, boolean expired) {
@@ -1709,7 +1739,7 @@ public class SettingsActivity extends Activity {
             String key = Recs.cleanKey(pasted);
             String why = key.isEmpty() ? Ui.tr("That doesn't look like a TMDB key.") : Recs.checkKey(key);
             if (why == null) Prefs.setTmdbKey(key);
-            keyChecked(why, false, Ui.tr("Saved. The picks arrive in a moment."));
+            keyChecked(why, KeyPage.TMDB, Ui.tr("Saved. The picks arrive in a moment."));
             return why;
         }
 
@@ -1718,15 +1748,24 @@ public class SettingsActivity extends Activity {
             String key = Recs.cleanKey(pasted);
             String why = key.isEmpty() ? Ui.tr("That doesn't look like a Watchmode key.") : Recs.checkWatchmodeKey(key);
             if (why == null) Prefs.setWatchmodeKey(key);
-            keyChecked(why, true, Ui.tr("Saved. The picks' pages arrive in a moment."));
+            keyChecked(why, KeyPage.WATCHMODE, Ui.tr("Saved. The picks' pages arrive in a moment."));
             return why;
         }
 
-        private void keyChecked(String why, boolean watchmode, String saved) {
+        /** As saveKey, for the OMDb key. */
+        private String saveOmdbKey(String pasted) {
+            String key = Recs.cleanKey(pasted);
+            String why = key.isEmpty() ? Ui.tr("That doesn't look like an OMDb key.") : Recs.checkOmdbKey(key);
+            if (why == null) Prefs.setOmdbKey(key);
+            keyChecked(why, KeyPage.OMDB, Ui.tr("Saved. The ratings arrive in a moment."));
+            return why;
+        }
+
+        private void keyChecked(String why, int kind, String saved) {
             handler.post(() -> {
                 keyChecking = false;
                 if (why == null) Recs.get(getContext()).refreshIfStale();
-                if (watchmode == keyWatchmode) {   // not if the other key's screen opened meanwhile
+                if (kind == keyKind) {   // not if another key's screen opened meanwhile
                     if (why == null) {
                         stopKeyPage();   // typed: the phone's page has nothing left to do
                         setKeyStatus(saved, false);
@@ -1745,7 +1784,7 @@ public class SettingsActivity extends Activity {
             int n = 0;
             if (keyPage == null && !keyChecking) ids[n++] = K_NEW;
             ids[n++] = K_TYPE;
-            if (!(keyWatchmode ? Prefs.watchmodeKey() : Prefs.tmdbKey()).isEmpty()) ids[n++] = K_REMOVE;
+            if (!givenKey(keyKind).isEmpty()) ids[n++] = K_REMOVE;
             boolean added = n > 0 && ids[0] == K_NEW && (keyRowIds.length == 0 || keyRowIds[0] != K_NEW);
             keyRowIds = java.util.Arrays.copyOf(ids, n);
             if (screen != TMDB_KEY) return;
@@ -1778,12 +1817,12 @@ public class SettingsActivity extends Activity {
             if (keyChecking) return;
             EditText field = new EditText(activity);
             field.setSingleLine(true);
-            field.setHint(keyWatchmode ? Ui.tr("Watchmode key") : Ui.tr("API Read Access Token or API Key"));
+            field.setHint(keyKind == KeyPage.TMDB ? Ui.tr("API Read Access Token or API Key") : keyName(keyKind));
             field.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
                     | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
             field.setImeOptions(EditorInfo.IME_ACTION_DONE);
             AlertDialog dialog = new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                    .setTitle(keyWatchmode ? Ui.tr("Watchmode key") : Ui.tr("TMDB key"))
+                    .setTitle(keyName(keyKind))
                     .setView(field)
                     .setPositiveButton(Ui.tr("Save"), (d, which) -> typedKey(field.getText().toString()))
                     .setNegativeButton(Ui.tr("Cancel"), null)
@@ -1799,11 +1838,12 @@ public class SettingsActivity extends Activity {
         private void typedKey(String text) {
             if (text.trim().isEmpty() || keyChecking) return;
             keyChecking = true;
-            boolean watchmode = keyWatchmode;
-            setKeyStatus(watchmode ? Ui.tr("Checking the key with Watchmode…") : Ui.tr("Checking the key with TMDB…"), false);
+            int kind = keyKind;
+            setKeyStatus(checkingText(kind), false);
             keyRowsChanged();
             new Thread(() -> {
-                if (watchmode) saveWatchmodeKey(text);
+                if (kind == KeyPage.OMDB) saveOmdbKey(text);
+                else if (kind == KeyPage.WATCHMODE) saveWatchmodeKey(text);
                 else saveKey(text);
             }, "Key").start();
         }
@@ -1811,9 +1851,11 @@ public class SettingsActivity extends Activity {
         /** Asks, then forgets the key given on the TV (one built in from config.properties is used again). */
         private void askRemoveKey() {
             AlertDialog dialog = new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                    .setTitle(keyWatchmode ? Ui.tr("Remove the Watchmode key?") : Ui.tr("Remove the TMDB key?"))
+                    .setTitle(keyKind == KeyPage.OMDB ? Ui.tr("Remove the OMDb key?")
+                            : keyKind == KeyPage.WATCHMODE ? Ui.tr("Remove the Watchmode key?") : Ui.tr("Remove the TMDB key?"))
                     .setPositiveButton(Ui.tr("Remove"), (d, which) -> {
-                        if (keyWatchmode) Prefs.setWatchmodeKey("");
+                        if (keyKind == KeyPage.OMDB) Prefs.setOmdbKey("");
+                        else if (keyKind == KeyPage.WATCHMODE) Prefs.setWatchmodeKey("");
                         else Prefs.setTmdbKey("");
                         keyStatus = null;   // the row and Home Settings say it
                         keyRowsChanged();
@@ -1827,7 +1869,7 @@ public class SettingsActivity extends Activity {
         /** The rows, the code with the steps beside it, the address under it for a phone without a camera, and the status. */
         private void drawKey(Canvas c) {
             float x = LIST_X * k + 30 * k, pitch = LIST_ROW_H + LIST_ROW_GAP;
-            c.drawText(keyWatchmode ? Ui.tr("Watchmode key") : Ui.tr("TMDB key"), x, (LIST_TOP - 24) * k, keyHeading);
+            c.drawText(keyName(keyKind), x, (LIST_TOP - 24) * k, keyHeading);
             int rows = rowCount();
             for (int i = 0; i < rows; i++) {
                 float y = (LIST_TOP + 20 + i * pitch) * k;
@@ -2370,7 +2412,7 @@ public class SettingsActivity extends Activity {
                     : screen == POWER && powerRow() != P_SHOW && unavailable(focus) == null ? Ui.tr("OK opens the list. ← → change the value.")
                     : screen == HOME_SETTINGS && from + focus == POWER_ON_ROW && unavailable(focus) == null
                     ? Ui.tr("Only after a full start, not from standby.")
-                    : screen == HOME_SETTINGS && (from + focus == keyRow() || from + focus == watchmodeRow()) ? Ui.tr("OK: send it from your phone, or type it.")
+                    : screen == HOME_SETTINGS && (from + focus == keyRow() || from + focus == watchmodeRow() || from + focus == omdbRow()) ? Ui.tr("OK: send it from your phone, or type it.")
                     : screen == HOME_SETTINGS && from + focus == updatesRow() ? (Updates.ready(updates, installed)
                     ? Ui.tr("OK installs it; Android asks first.") : Ui.tr("OK checks for a new version."))
                     : Ui.tr("OK or the arrows change the value.")), LIST_X * k + 30 * k, hy, hint);
@@ -2452,8 +2494,9 @@ public class SettingsActivity extends Activity {
             } else if (screen == HOME_SETTINGS && pickScroll + focus == updatesRow()) {
                 updateNow();
                 return;
-            } else if (screen == HOME_SETTINGS && (pickScroll + focus == keyRow() || pickScroll + focus == watchmodeRow())) {
-                openKeyScreen(pickScroll + focus == watchmodeRow());
+            } else if (screen == HOME_SETTINGS && (pickScroll + focus == keyRow() || pickScroll + focus == watchmodeRow() || pickScroll + focus == omdbRow())) {
+                int row = pickScroll + focus;
+                openKeyScreen(row == omdbRow() ? KeyPage.OMDB : row == watchmodeRow() ? KeyPage.WATCHMODE : KeyPage.TMDB);
             } else if (screen == TMDB_KEY) {
                 activateKey();
                 invalidate();
