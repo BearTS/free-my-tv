@@ -55,7 +55,7 @@ final class KeyPage {
     private final String path;
     private final Listener listener;
     /** Which key the page takes. */
-    static final int TMDB = 0, WATCHMODE = 1, OMDB = 2;
+    static final int TMDB = 0, WATCHMODE = 1, OMDB = 2, JELLYFIN = 3;
     private final int kind;
     private final AtomicBoolean taken = new AtomicBoolean();      // a key came: the one this page takes
     private final AtomicInteger answering = new AtomicInteger();   // connections being answered
@@ -207,7 +207,11 @@ final class KeyPage {
             return false;
         }
         listener.checking();
-        String why = listener.accept(field(new String(body, StandardCharsets.US_ASCII), "key"), kind);
+        String form = new String(body, StandardCharsets.US_ASCII);
+        // Jellyfin's page sends the server's address and your user with the key, one per line to the listener.
+        String value = kind == JELLYFIN ? field(form, "server").trim() + "\n" + field(form, "user").trim() + "\n" + field(form, "key").trim()
+                : field(form, "key");
+        String why = listener.accept(value, kind);
         respond(out, "200 OK", "text/html; charset=utf-8", result(why));
         return true;
     }
@@ -268,6 +272,21 @@ final class KeyPage {
     /** How to get a key, then the field to paste it in. */
     private byte[] form() {
         StringBuilder b = top();
+        if (kind == JELLYFIN) {
+            b.append("<p>").append(esc(Ui.tr("Your Jellyfin server's Up next and Recently added, on the home screen's Jellyfin tab, played in Wholphin.")))
+                    .append("</p><ol><li>").append(esc(Ui.tr("In Jellyfin's dashboard, open API Keys and add one."))).append("</li><li>")
+                    .append(esc(Ui.tr("Fill in the server's address, your user and the key:"))).append("</li></ol>")
+                    .append("<form method=post action=\"").append(path).append("\">")
+                    .append("<input name=server type=url placeholder=\"https://jellyfin.example.com\" aria-label=\"").append(esc(Ui.tr("Server address")))
+                    .append("\" required autocomplete=off autocapitalize=off autocorrect=off spellcheck=false>")
+                    .append("<input name=user placeholder=\"").append(esc(Ui.tr("User"))).append("\" aria-label=\"").append(esc(Ui.tr("User")))
+                    .append("\" required autocomplete=off autocapitalize=off autocorrect=off spellcheck=false>")
+                    .append("<input name=key placeholder=\"").append(esc(Ui.tr("API key"))).append("\" aria-label=\"").append(esc(Ui.tr("API key")))
+                    .append("\" required autocomplete=off autocapitalize=off autocorrect=off spellcheck=false>")
+                    .append("<button>").append(esc(Ui.tr("Send to the TV"))).append("</button></form><p class=s>")
+                    .append(esc(Ui.tr("The key stays on your TV. This page works once, for 5 minutes."))).append("</p>");
+            return bottom(b);
+        }
         if (kind == OMDB) {
             b.append("<p>").append(esc(Ui.tr("The key adds IMDb and Rotten Tomatoes ratings to the picks.")))
                     .append("</p><p>").append(esc(Ui.tr("Free, and it takes two minutes:"))).append("</p><ol><li>")
@@ -322,12 +341,12 @@ final class KeyPage {
                 .append("<title>Free My TV</title><style>")
                 .append("body{margin:0 auto;max-width:34em;padding:24px;font:17px/1.5 system-ui,-apple-system,sans-serif;")
                 .append("background:#1c1c1e;color:#f5f5f7}h1{font-size:24px}li{margin:.3em 0}a{color:#9fd3ff}")
-                .append("textarea{box-sizing:border-box;width:100%;font:15px monospace;padding:10px;border-radius:10px;border:0}")
+                .append("textarea,input{box-sizing:border-box;width:100%;font:15px monospace;padding:10px;border-radius:10px;border:0;margin:0 0 10px}")
                 .append("button,.b{display:block;box-sizing:border-box;width:100%;margin:14px 0;padding:14px;border:0;")
                 .append("border-radius:12px;background:#f5f5f7;color:#1c1c1e;font:600 17px system-ui,sans-serif;text-align:center;")
                 .append("text-decoration:none}.b{background:#3a3a3c;color:#f5f5f7}.s{color:#98989d;font-size:15px}")
                 .append(".ok{color:#7ee08a;font-size:20px}.no{color:#ffc266;font-size:20px}</style>")
-                .append("<h1>").append(esc(kind == OMDB ? Ui.tr("OMDb key") : kind == WATCHMODE ? Ui.tr("Watchmode key") : Ui.tr("TMDB key"))).append(" · Free My TV</h1>");
+                .append("<h1>").append(esc(kind == JELLYFIN ? "Jellyfin" : kind == OMDB ? Ui.tr("OMDb key") : kind == WATCHMODE ? Ui.tr("Watchmode key") : Ui.tr("TMDB key"))).append(" · Free My TV</h1>");
     }
 
     private static byte[] bottom(StringBuilder b) {

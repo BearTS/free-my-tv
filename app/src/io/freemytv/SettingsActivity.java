@@ -169,6 +169,7 @@ public class SettingsActivity extends Activity {
         // The shelf editor (also the top buttons' one, with editingTop): what it can hold (selected ones first, in
         // order) and the selection.
         private final List<String[]> shelfRows = new ArrayList<>();
+        private boolean jellyfinLibs;   // the Picks from screen lists Jellyfin's libraries instead
         private boolean someServicesOff;   // is a streaming service on the TV switched off in Picks from (counted when the screen opens)
         private final List<String[]> services = new ArrayList<>();   // {key, name} of the streaming services on the TV (Picks from)
         private final List<String> shelfOrder = new ArrayList<>();
@@ -357,7 +358,7 @@ public class SettingsActivity extends Activity {
                 case PICK_FROM: {
                     int at = pickScroll + row;
                     if (at >= services.size()) return "";
-                    return services.get(at)[1] + ", " + onOff(!Prefs.serviceOff(services.get(at)[0])) + ", " + Ui.trf("{i} of {n}", "i", at + 1, "n", services.size());
+                    return services.get(at)[1] + ", " + onOff(fromOn(services.get(at)[0])) + ", " + Ui.trf("{i} of {n}", "i", at + 1, "n", services.size());
                 }
                 case WATCH_APPS: {
                     int at = pickScroll + row;
@@ -942,6 +943,10 @@ public class SettingsActivity extends Activity {
                                 focus = PICKS_ROW;
                                 pickScroll = 0;
                                 screen = HOME_SETTINGS;
+                            } else if (screen == PICK_FROM && jellyfinLibs) {
+                                jellyfinLibs = false;
+                                Jellyfin.get(getContext()).refresh(true);
+                                showSettingsRow(JF_LIBS_ROW);
                             } else if (screen == PICK_FROM) {
                                 countServicesOff();
                                 pickScroll = 0;   // the Picks screen has a few rows
@@ -975,9 +980,10 @@ public class SettingsActivity extends Activity {
          *  updates (the last row). */
         private static final int CLOCK_ROW = 3, PHOTOS_ROW = 4, TOP_ROW = 6, PICKS_ROW = 7, WATCH_ON_ROW = 8,
                 WATCH_CARDS_ROW = 9, WATCH_PER_APP_ROW = 10, WATCH_MAX_ROW = 11, WATCH_ROW = 12,
-                SAVER_ROW = 13, ANDROID_APPS_ROW = 14, STATUS_ICONS_ROW = 15, RECENTS_ROW = 16, POWER_ON_ROW = 17,
-                WEATHER_ROW = 18, CITY_ROW = 19, FORECAST_ROW = 20, PLAYING_ROW = 21, HOME_ROW = Config.HOME_ASSISTANT ? 22 : -1,
-                QUOTES_ROW = Config.HOME_ASSISTANT ? 23 : 22, COIN_ROWS = QUOTES_ROW + 1;
+                JELLYFIN_ROW = 13, JF_LIBS_ROW = 14, JF_PLAY_ROW = 15,
+                SAVER_ROW = 16, ANDROID_APPS_ROW = 17, STATUS_ICONS_ROW = 18, RECENTS_ROW = 19, POWER_ON_ROW = 20,
+                WEATHER_ROW = 21, CITY_ROW = 22, FORECAST_ROW = 23, PLAYING_ROW = 24, HOME_ROW = Config.HOME_ASSISTANT ? 25 : -1,
+                QUOTES_ROW = Config.HOME_ASSISTANT ? 26 : 25, COIN_ROWS = QUOTES_ROW + 1;
         /** No "home" on Xiaomi TVs: their remote sends one Home press as a burst of presses (HomeView.BURST_MS). */
         private static final String[] RECENTS = RemoteKeys.XIAOMI ? new String[] {"off", "drawer"}
                 : new String[] {"off", "drawer", "home"};
@@ -1003,6 +1009,9 @@ public class SettingsActivity extends Activity {
             l.add(Ui.tr("Most from one app"));
             l.add(Ui.tr("Most in the row"));
             l.add(Ui.tr("Continue Watching apps"));
+            l.add("Jellyfin");
+            l.add(Ui.tr("Jellyfin libraries"));
+            l.add(Ui.tr("Jellyfin: Watch now"));
             l.add(Ui.tr("Watch from the screensaver"));
             l.add(Ui.tr("Android apps"));
             l.add(Ui.tr("Status icons"));   // before the weather widget: City and Forecast are the widget's
@@ -1044,21 +1053,23 @@ public class SettingsActivity extends Activity {
 
         /** The row of a key's screen (KeyPage.TMDB, WATCHMODE, OMDB). */
         private int keyRowOf(int kind) {
-            return kind == KeyPage.OMDB ? omdbRow() : kind == KeyPage.WATCHMODE ? watchmodeRow() : keyRow();
+            return kind == KeyPage.JELLYFIN ? JELLYFIN_ROW : kind == KeyPage.OMDB ? omdbRow() : kind == KeyPage.WATCHMODE ? watchmodeRow() : keyRow();
         }
 
         private static String keyName(int kind) {
-            return kind == KeyPage.OMDB ? Ui.tr("OMDb key") : kind == KeyPage.WATCHMODE ? Ui.tr("Watchmode key") : Ui.tr("TMDB key");
+            return kind == KeyPage.JELLYFIN ? "Jellyfin" : kind == KeyPage.OMDB ? Ui.tr("OMDb key")
+                    : kind == KeyPage.WATCHMODE ? Ui.tr("Watchmode key") : Ui.tr("TMDB key");
         }
 
         private static String checkingText(int kind) {
-            return kind == KeyPage.OMDB ? Ui.tr("Checking the key with OMDb…")
+            return kind == KeyPage.JELLYFIN ? Ui.tr("Checking with your Jellyfin server…")
+                    : kind == KeyPage.OMDB ? Ui.tr("Checking the key with OMDb…")
                     : kind == KeyPage.WATCHMODE ? Ui.tr("Checking the key with Watchmode…") : Ui.tr("Checking the key with TMDB…");
         }
 
         /** The key given on the TV for that screen ("" when none). */
         private static String givenKey(int kind) {
-            return kind == KeyPage.OMDB ? Prefs.omdbKey() : kind == KeyPage.WATCHMODE ? Prefs.watchmodeKey() : Prefs.tmdbKey();
+            return kind == KeyPage.JELLYFIN ? Prefs.jellyfinKey() : kind == KeyPage.OMDB ? Prefs.omdbKey() : kind == KeyPage.WATCHMODE ? Prefs.watchmodeKey() : Prefs.tmdbKey();
         }
 
         /** A key's row: "Not set", or the key's last 4 characters (all that's ever shown of it). */
@@ -1139,6 +1150,9 @@ public class SettingsActivity extends Activity {
             v[WATCH_PER_APP_ROW] = Prefs.watchPerApp() == 0 ? Ui.tr("No limit") : String.valueOf(Prefs.watchPerApp());
             v[WATCH_MAX_ROW] = String.valueOf(Prefs.watchMax());
             v[WATCH_ROW] = watchCount();
+            v[JELLYFIN_ROW] = Jellyfin.configured() ? Prefs.jellyfinUser() + " · " + android.net.Uri.parse(Prefs.jellyfinUrl()).getHost() : Ui.tr("Not set");
+            v[JF_LIBS_ROW] = !Jellyfin.configured() ? "—" : jellyfinLibsCount();
+            v[JF_PLAY_ROW] = Prefs.jellyfinPlay() ? Ui.tr("Play in Wholphin") : Ui.tr("Open its page");
             String rec = Prefs.recents();
             v[RECENTS_ROW] = rec.equals("home") ? Ui.tr("recents|Drawer and Home twice") : rec.equals("drawer") ? Ui.tr("recents|In the drawer") : Ui.tr("Off");
             String power = Prefs.powerOn();
@@ -1509,6 +1523,12 @@ public class SettingsActivity extends Activity {
                     if (watchLocked()) return;
                     Prefs.setWatchMax(step(Prefs.WATCH_MAX, Prefs.watchMax(), dir));
                     break;
+                case JELLYFIN_ROW:
+                case JF_LIBS_ROW:
+                    return;   // OK opens their screens
+                case JF_PLAY_ROW:
+                    Prefs.setJellyfinPlay(!Prefs.jellyfinPlay());
+                    return;
                 case WATCH_ROW: return;   // a list of its own (OK)
                 case RECENTS_ROW: {
                     int at = java.util.Arrays.asList(RECENTS).indexOf(Prefs.recents());
@@ -1634,7 +1654,10 @@ public class SettingsActivity extends Activity {
             keyStatus = null;
             keyRowIds = new int[0];
             // The steps, in the TV's language, beside the code; the phone's page says the same.
-            String steps = Ui.tr("Free, and it takes two minutes:") + (kind == KeyPage.OMDB
+            String steps = kind == KeyPage.JELLYFIN
+                    ? "1. " + Ui.tr("In Jellyfin's dashboard, open API Keys and add one.")
+                    + "\n2. " + Ui.tr("Scan this code with your phone and fill in the server's address, your user and the key.")
+                    : Ui.tr("Free, and it takes two minutes:") + (kind == KeyPage.OMDB
                     ? "\n1. " + Ui.tr("Request a free key at omdbapi.com.")
                     + "\n2. " + Ui.tr("Open the link in OMDb's email to turn the key on.")
                     + "\n3. " + Ui.tr("Scan this code with your phone and paste the key there.")
@@ -1647,7 +1670,8 @@ public class SettingsActivity extends Activity {
                     + "\n3. " + Ui.tr("Scan this code with your phone and paste the API Read Access Token (or the API Key) there."));
             int width = Math.round((LIST_R - LIST_X - 60 - QR_SIDE - 40) * k);
             keySteps = StaticLayout.Builder.obtain(steps, 0, steps.length(), notice, width).setLineSpacing(6 * k, 1).build();
-            String purpose = kind == KeyPage.OMDB ? Ui.tr("The key adds IMDb and Rotten Tomatoes ratings to the picks.")
+            String purpose = kind == KeyPage.JELLYFIN ? Ui.tr("Your Jellyfin server's Up next and Recently added, on the home screen's Jellyfin tab, played in Wholphin.")
+                    : kind == KeyPage.OMDB ? Ui.tr("The key adds IMDb and Rotten Tomatoes ratings to the picks.")
                     : kind == KeyPage.WATCHMODE ? Ui.tr("The key makes a pick open the title's page in its app, where the app allows it.")
                     : Ui.tr("The key brings the picks: what's trending on your streaming apps, with their photos on the screensaver.");
             keyPurpose = StaticLayout.Builder.obtain(purpose, 0, purpose.length(), notice, Math.round((LIST_R - LIST_X - 60) * k))
@@ -1721,7 +1745,7 @@ public class SettingsActivity extends Activity {
             }
 
             @Override public String accept(String key, int kind) {
-                return kind == KeyPage.OMDB ? saveOmdbKey(key) : kind == KeyPage.WATCHMODE ? saveWatchmodeKey(key) : saveKey(key);
+                return kind == KeyPage.JELLYFIN ? saveJellyfin(key) : kind == KeyPage.OMDB ? saveOmdbKey(key) : kind == KeyPage.WATCHMODE ? saveWatchmodeKey(key) : saveKey(key);
             }
 
             @Override public void closed(KeyPage page, boolean expired) {
@@ -1758,6 +1782,23 @@ public class SettingsActivity extends Activity {
             String why = key.isEmpty() ? Ui.tr("That doesn't look like an OMDb key.") : Recs.checkOmdbKey(key);
             if (why == null) Prefs.setOmdbKey(key);
             keyChecked(why, KeyPage.OMDB, Ui.tr("Saved. The ratings arrive in a moment."));
+            return why;
+        }
+
+        /** Jellyfin: "address\nuser\nkey", checked with the server (the user must exist there) and saved. */
+        private String saveJellyfin(String lines) {
+            String[] parts = lines.split("\n", -1);
+            String url = parts.length > 0 ? Jellyfin.trim(parts[0]) : "", user = parts.length > 1 ? parts[1].trim() : "";
+            String key = parts.length > 2 ? Recs.cleanOmdbKey(parts[2]) : "";
+            String why = !url.startsWith("http://") && !url.startsWith("https://") ? Ui.tr("The address starts with https:// (or http:// at home).")
+                    : user.isEmpty() ? Ui.tr("Fill in your Jellyfin user.")
+                    : key.isEmpty() ? Ui.tr("That doesn't look like a Jellyfin API key.")
+                    : Jellyfin.check(url, user, key);
+            if (why == null) {
+                Prefs.setJellyfin(url, user, key);
+                Jellyfin.get(getContext()).refresh(true);
+            }
+            keyChecked(why, KeyPage.JELLYFIN, Ui.tr("Saved. The Jellyfin tab fills in a moment."));
             return why;
         }
 
@@ -1815,6 +1856,10 @@ public class SettingsActivity extends Activity {
         /** The fallback: the key typed with the remote (the on-screen keyboard), then checked as a phone's would be. */
         private void askKey() {
             if (keyChecking) return;
+            if (keyKind == KeyPage.JELLYFIN) {
+                askJellyfin();
+                return;
+            }
             EditText field = new EditText(activity);
             field.setSingleLine(true);
             field.setHint(keyKind == KeyPage.TMDB ? Ui.tr("API Read Access Token or API Key") : keyName(keyKind));
@@ -1835,6 +1880,36 @@ public class SettingsActivity extends Activity {
             dialog.show();
         }
 
+        /** Jellyfin typed with the remote: the server's address, your user and the key, in one dialog. */
+        private void askJellyfin() {
+            android.widget.LinearLayout box = new android.widget.LinearLayout(activity);
+            box.setOrientation(android.widget.LinearLayout.VERTICAL);
+            int pad = Math.round(24 * k);
+            box.setPadding(pad, pad / 2, pad, 0);
+            EditText server = jellyfinField(Ui.tr("Server address"), Prefs.jellyfinUrl(), InputType.TYPE_TEXT_VARIATION_URI);
+            EditText user = jellyfinField(Ui.tr("User"), Prefs.jellyfinUser(), InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
+            EditText key = jellyfinField(Ui.tr("API key"), "", InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
+            box.addView(server);
+            box.addView(user);
+            box.addView(key);
+            new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                    .setTitle("Jellyfin")
+                    .setView(box)
+                    .setPositiveButton(Ui.tr("Save"), (d, which) -> typedKey(server.getText().toString() + "\n" + user.getText().toString()
+                            + "\n" + key.getText().toString()))
+                    .setNegativeButton(Ui.tr("Cancel"), null)
+                    .show();
+        }
+
+        private EditText jellyfinField(String hint, String value, int variation) {
+            EditText field = new EditText(activity);
+            field.setSingleLine(true);
+            field.setHint(hint);
+            field.setText(value);
+            field.setInputType(InputType.TYPE_CLASS_TEXT | variation | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+            return field;
+        }
+
         private void typedKey(String text) {
             if (text.trim().isEmpty() || keyChecking) return;
             keyChecking = true;
@@ -1842,7 +1917,8 @@ public class SettingsActivity extends Activity {
             setKeyStatus(checkingText(kind), false);
             keyRowsChanged();
             new Thread(() -> {
-                if (kind == KeyPage.OMDB) saveOmdbKey(text);
+                if (kind == KeyPage.JELLYFIN) saveJellyfin(text);
+                else if (kind == KeyPage.OMDB) saveOmdbKey(text);
                 else if (kind == KeyPage.WATCHMODE) saveWatchmodeKey(text);
                 else saveKey(text);
             }, "Key").start();
@@ -1851,10 +1927,11 @@ public class SettingsActivity extends Activity {
         /** Asks, then forgets the key given on the TV (one built in from config.properties is used again). */
         private void askRemoveKey() {
             AlertDialog dialog = new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                    .setTitle(keyKind == KeyPage.OMDB ? Ui.tr("Remove the OMDb key?")
+                    .setTitle(keyKind == KeyPage.JELLYFIN ? Ui.tr("Remove the Jellyfin server?") : keyKind == KeyPage.OMDB ? Ui.tr("Remove the OMDb key?")
                             : keyKind == KeyPage.WATCHMODE ? Ui.tr("Remove the Watchmode key?") : Ui.tr("Remove the TMDB key?"))
                     .setPositiveButton(Ui.tr("Remove"), (d, which) -> {
-                        if (keyKind == KeyPage.OMDB) Prefs.setOmdbKey("");
+                        if (keyKind == KeyPage.JELLYFIN) Prefs.setJellyfin("", "", "");
+                        else if (keyKind == KeyPage.OMDB) Prefs.setOmdbKey("");
                         else if (keyKind == KeyPage.WATCHMODE) Prefs.setWatchmodeKey("");
                         else Prefs.setTmdbKey("");
                         keyStatus = null;   // the row and Home Settings say it
@@ -2340,13 +2417,59 @@ public class SettingsActivity extends Activity {
             int at = pickScroll + focus;
             if (at >= services.size()) return;
             String key = services.get(at)[0];
+            if (jellyfinLibs) {
+                Set<String> off = Prefs.jellyfinOff();
+                if (!off.remove(key)) off.add(key);
+                Prefs.setJellyfinOff(off);
+                return;
+            }
             Prefs.setServiceOff(key, !Prefs.serviceOff(key));
+        }
+
+        /** On or off on the Picks from screen: a streaming service, or (for Jellyfin) a library. */
+        private boolean fromOn(String key) {
+            return jellyfinLibs ? !Prefs.jellyfinOff().contains(key) : !Prefs.serviceOff(key);
+        }
+
+        /** Jellyfin's libraries, read from the server, on the Picks from screen. */
+        private void openJellyfinLibraries() {
+            Context c = getContext().getApplicationContext();
+            new Thread(() -> {
+                List<String[]> found;
+                try {
+                    found = Jellyfin.get(c).readLibraries();
+                } catch (Exception e) {
+                    found = new ArrayList<>();
+                    AppLog.w("jellyfin libraries: " + e.getMessage());
+                }
+                List<String[]> libs = found;
+                handler.post(() -> {
+                    services.clear();
+                    services.addAll(libs);
+                    jellyfinLibs = true;
+                    screen = PICK_FROM;
+                    pickScroll = 0;
+                    focus = 0;
+                    invalidate();
+                    spoken.focusMoved();
+                });
+            }, "jellyfin-libraries").start();
+        }
+
+        /** "3 of 4": the libraries on, of those last read (the screen reads them). */
+        private String jellyfinLibsCount() {
+            List<String[]> libs = Jellyfin.get(getContext()).libraries();
+            if (libs.isEmpty()) return "›";
+            Set<String> off = Prefs.jellyfinOff();
+            int on = 0;
+            for (String[] lib : libs) if (!off.contains(lib[0])) on++;
+            return Ui.trf("{on} of {total}", "on", on, "total", libs.size());
         }
 
         /** Picks from: one row per streaming service on the TV, On or Off. */
         private void drawServices(Canvas c) {
             Paint heading = Ui.text(Ui.displaySemibold, 34 * k, 0xFFFFFFFF);
-            c.drawText(Ui.tr("Picks from"), LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
+            c.drawText(jellyfinLibs ? Ui.tr("Jellyfin libraries") : Ui.tr("Picks from"), LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
             int rows = Math.min(PICK_VISIBLE, services.size());
             for (int i = 0; i < rows; i++) {
                 float y = (LIST_TOP + 20 + i * (LIST_ROW_H + LIST_ROW_GAP)) * k;
@@ -2357,11 +2480,13 @@ public class SettingsActivity extends Activity {
                 float base = rowRect.centerY() + Ui.halfCap(rowLabel);
                 String[] service = services.get(pickScroll + i);   // the list scrolls past 9 services, like the pickers
                 c.drawText(service[1], rowRect.left + 30 * k, base, rowLabel);
-                c.drawText(onOff(!Prefs.serviceOff(service[0])), rowRect.right - 30 * k, base, rowValue);
+                c.drawText(onOff(fromOn(service[0])), rowRect.right - 30 * k, base, rowValue);
             }
             Paint hint = Ui.text(Ui.regular, 23 * k, 0x8CFFFFFF);
             float hy = (LIST_TOP + 20 + rows * (LIST_ROW_H + LIST_ROW_GAP) + 36) * k;
-            c.drawText(services.isEmpty() ? Ui.tr("No streaming apps on this TV.")
+            c.drawText(jellyfinLibs ? (services.isEmpty() ? Ui.tr("No libraries found: check Jellyfin's address, user and key.")
+                    : Ui.tr("Titles from a library that is off are left out of the Jellyfin tab."))
+                    : services.isEmpty() ? Ui.tr("No streaming apps on this TV.")
                     : Ui.tr("Titles from a service that is off are left out of the picks."),
                     LIST_X * k + 30 * k, hy, hint);
         }
@@ -2412,7 +2537,8 @@ public class SettingsActivity extends Activity {
                     : screen == POWER && powerRow() != P_SHOW && unavailable(focus) == null ? Ui.tr("OK opens the list. ← → change the value.")
                     : screen == HOME_SETTINGS && from + focus == POWER_ON_ROW && unavailable(focus) == null
                     ? Ui.tr("Only after a full start, not from standby.")
-                    : screen == HOME_SETTINGS && (from + focus == keyRow() || from + focus == watchmodeRow() || from + focus == omdbRow()) ? Ui.tr("OK: send it from your phone, or type it.")
+                    : screen == HOME_SETTINGS && (from + focus == keyRow() || from + focus == watchmodeRow() || from + focus == omdbRow() || from + focus == JELLYFIN_ROW) ? Ui.tr("OK: send it from your phone, or type it.")
+                    : screen == HOME_SETTINGS && from + focus == JF_LIBS_ROW ? Ui.tr("OK picks the libraries the Jellyfin tab shows.")
                     : screen == HOME_SETTINGS && from + focus == updatesRow() ? (Updates.ready(updates, installed)
                     ? Ui.tr("OK installs it; Android asks first.") : Ui.tr("OK checks for a new version."))
                     : Ui.tr("OK or the arrows change the value.")), LIST_X * k + 30 * k, hy, hint);
@@ -2479,6 +2605,12 @@ public class SettingsActivity extends Activity {
             } else if (screen == HOME_SETTINGS && pickScroll + focus == WATCH_ROW) {
                 if (watchLocked()) return;
                 openWatchApps();
+            } else if (screen == HOME_SETTINGS && pickScroll + focus == JELLYFIN_ROW) {
+                openKeyScreen(KeyPage.JELLYFIN);
+            } else if (screen == HOME_SETTINGS && pickScroll + focus == JF_LIBS_ROW) {
+                if (!Jellyfin.configured()) return;
+                openJellyfinLibraries();
+                return;
             } else if (screen == REMOTE_KEYS) {
                 openPicker(focus + 1);
             } else if (screen == HOME_SETTINGS && pickScroll + focus == 0) {

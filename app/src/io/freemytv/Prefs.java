@@ -444,6 +444,26 @@ final class Prefs {
         version++;
     }
 
+    // MARK: - Jellyfin (Home Settings > Jellyfin: the Jellyfin tab)
+
+    static String jellyfinUrl() { return app == null ? "" : sp().getString("jellyfinUrl", "").trim(); }
+    static String jellyfinUser() { return app == null ? "" : sp().getString("jellyfinUser", "").trim(); }
+    /** The API key (Jellyfin's dashboard > API Keys): given on the TV, never built in. Never logged. */
+    static String jellyfinKey() { return app == null ? "" : sp().getString("jellyfinKey", "").trim(); }
+
+    static void setJellyfin(String url, String user, String key) {
+        sp().edit().putString("jellyfinUrl", url).putString("jellyfinUser", user).putString("jellyfinKey", key).commit();
+        version++;
+    }
+
+    /** Libraries left out of the Jellyfin tab, by id. */
+    static Set<String> jellyfinOff() { return new HashSet<>(sp().getStringSet("jellyfinOff", new HashSet<>())); }
+    static void setJellyfinOff(Set<String> ids) { putQuietly("jellyfinOff", ids); }
+
+    /** OK on a Jellyfin title plays it in Wholphin (else opens its page there). */
+    static boolean jellyfinPlay() { return sp().getBoolean("jellyfinPlay", true); }
+    static void setJellyfinPlay(boolean play) { put("jellyfinPlay", play); }
+
     // MARK: - Shelf
 
     /** Packages on the home shelf, in order; null until the user edits it (then the built-in list applies). */

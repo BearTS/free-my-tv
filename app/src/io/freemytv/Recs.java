@@ -63,6 +63,7 @@ final class Recs {
         String imdbId;          // "tt…", for the ratings (OMDb) and Stremio
         String imdbRating, rtRating;   // "8.1" and "92%" from OMDb (omdb_key), or null
         boolean ratingsTried;   // OMDb asked once for this title
+        String type;            // a Jellyfin title's type: Movie, Series, Episode (link holds its id)
     }
 
     interface Listener { void onRecs(); }
@@ -375,11 +376,30 @@ final class Recs {
         }
     }
 
+    private static long parseLong(String s) {
+        try {
+            return Long.parseLong(s);
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
     /** IMDb's rating and Rotten Tomatoes' score for a title, once (with an OMDb key and the title's IMDb id). */
     private void fetchRatings(Pick p) {
         String key = omdbKey();
         if (key.isEmpty() || p.ratingsTried || p.imdbId == null || !p.imdbId.startsWith("tt")) return;
         if (cache.getInt("omdb:refused", 0) == key.hashCode()) return;
+        // Asked once a week per title (the free plan has 1,000 a day; the Jellyfin tab's list is read every few minutes).
+        String saved = cache.getString("omdb:" + p.imdbId, null);
+        if (saved != null) {
+            String[] parts = saved.split("\\|", -1);
+            if (parts.length == 3 && System.currentTimeMillis() - parseLong(parts[0]) < 7 * 24 * 3600_000L) {
+                p.imdbRating = parts[1].isEmpty() ? null : parts[1];
+                p.rtRating = parts[2].isEmpty() ? null : parts[2];
+                p.ratingsTried = true;
+                return;
+            }
+        }
         try {
             JSONObject o = omdb(p.imdbId, key);
             if (!"True".equals(o.optString("Response"))) {
@@ -399,6 +419,8 @@ final class Recs {
                 if (r != null && "Rotten Tomatoes".equals(r.optString("Source"))) p.rtRating = r.optString("Value");
             }
             p.ratingsTried = true;
+            cache.edit().putString("omdb:" + p.imdbId, System.currentTimeMillis() + "|" + (p.imdbRating == null ? "" : p.imdbRating)
+                    + "|" + (p.rtRating == null ? "" : p.rtRating)).apply();
         } catch (Exception e) {
             AppLog.w("omdb: " + (e instanceof IOException ? e.getMessage() : e.getClass().getSimpleName()));
         }
@@ -632,6 +654,7 @@ final class Recs {
     }
 
     private File imageFile(Pick p) {
+        if (Jellyfin.KIND.equals(p.kind)) return new File(new File(context.getCacheDir(), "recs"), "jf" + Integer.toHexString(p.backdrop.hashCode()));
         return new File(new File(context.getCacheDir(), "recs"), p.backdrop.replace("/", ""));
     }
 
@@ -800,14 +823,15 @@ final class Recs {
 
     /** Endless picks: a title near the screen without its details (genre, its app) gets them in the background. */
     void ensure(Pick p) {
-        if (p == null || p.id < 0 || !hasKey(context)) return;
+        boolean jellyfin = p != null && Jellyfin.KIND.equals(p.kind);
+        if (p == null || !jellyfin && (p.id < 0 || !hasKey(context))) return;
         boolean ratings = p.detailed && !p.ratingsTried && p.imdbId != null && !omdbKey().isEmpty();
         if (p.detailed && !ratings || !detailing.add(key(p))) return;
         io.execute(() -> {
             try {
                 if (!p.detailed) fetchDetails(p);
                 else fetchRatings(p);
-                save();
+                if (!jellyfin) save();
             } catch (Exception e) {
                 AppLog.w("recs details: " + e.getMessage());
             } finally {
@@ -819,7 +843,7 @@ final class Recs {
 
     /** Endless picks: whether TMDB may have more for this tab (null = Explore: movies and shows). */
     boolean hasMore(String kind) {
-        if (!Prefs.picksEndless() || !hasKey(context)) return false;
+        if (!Prefs.picksEndless() || !hasKey(context) || Jellyfin.KIND.equals(kind)) return false;
         if (kind == null) return !exhausted.contains("movie") || !exhausted.contains("tv");
         return !exhausted.contains(kind);
     }
@@ -834,7 +858,7 @@ final class Recs {
      * so the row never shifts under the focus; their images come as they near the screen.
      */
     void loadMore(String kind) {
-        if (!Prefs.picksEndless() || !hasKey(context)) return;
+        if (!Prefs.picksEndless() || !hasKey(context) || Jellyfin.KIND.equals(kind)) return;
         List<String> kinds = new ArrayList<>();
         for (String k : kind == null ? new String[] {"movie", "tv"} : new String[] {kind}) {
             if (!exhausted.contains(k) && loadingMore.add(k)) kinds.add(k);
@@ -1561,6 +1585,19 @@ final class Recs {
     // MARK: - Images (TMDB originals on disk, up to 24 so the whole list fits; this hour's kept ready in memory)
 
     private void download(Pick p) throws IOException {
+        if (Jellyfin.KIND.equals(p.kind)) {   // your own server's pictures, with its key
+            File f = imageFile(p);
+            if (!f.exists()) fetchFile(f, Jellyfin.open(p.backdrop));
+            File poster = posterFile(p);
+            if (poster != null && !poster.exists()) {
+                try {
+                    fetchFile(poster, Jellyfin.open(p.poster));
+                } catch (IOException e) {
+                    AppLog.w("jellyfin poster: " + e.getMessage());
+                }
+            }
+            return;
+        }
         File f = imageFile(p);
         if (!f.exists()) fetchFile(f, p.id < 0
                 ? plexOpen("/photo/:/transcode?width=1920&height=1080&minSize=1&url=" + URLEncoder.encode(p.backdrop, "UTF-8"))
@@ -1577,7 +1614,9 @@ final class Recs {
     }
 
     private File posterFile(Pick p) {
-        return p.poster == null || p.poster.isEmpty() ? null : new File(new File(context.getCacheDir(), "recs"), "p" + p.poster.replace("/", ""));
+        if (p.poster == null || p.poster.isEmpty()) return null;
+        if (Jellyfin.KIND.equals(p.kind)) return new File(new File(context.getCacheDir(), "recs"), "pjf" + Integer.toHexString(p.poster.hashCode()));
+        return new File(new File(context.getCacheDir(), "recs"), "p" + p.poster.replace("/", ""));
     }
 
     private void fetchFile(File f, HttpURLConnection c) throws IOException {
