@@ -2851,7 +2851,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         zone = z;
         if (z == Z_TOP) {
             topIndex = hit;
-            if (hit < T) selectTab(hit);   // as with the arrows (and on LG): focusing a tab selects it
+            // Pointing only moves the focus, as the arrows do; a click switches.
         } else if (z == Z_CARDS) {
             cardIndex = hit;
         } else if (z == Z_WATCH) {
@@ -5356,8 +5356,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                     next = Math.max(picksMode() ? 0 : T, Math.min(T - 1 + lightButtons.size(), next));
                     if (next >= T + lightButtons.size()) return true;
                     if (next == topIndex) return true;
-                    topIndex = next;
-                    if (topIndex < T) selectTab(topIndex);   // like Apple TV tabs: focusing a tab selects it
+                    topIndex = next;   // only the focus moves: OK switches the tab or the filter
                 } else if (dy > 0) {
                     if (picks) {
                         zone = Z_CARDS;
