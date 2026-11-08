@@ -464,6 +464,17 @@ final class Prefs {
     static boolean jellyfinPlay() { return sp().getBoolean("jellyfinPlay", true); }
     static void setJellyfinPlay(boolean play) { put("jellyfinPlay", play); }
 
+    // MARK: - Seerr (Home Settings > Seerr: Browse's Request button and download progress)
+
+    static String seerrUrl() { return app == null ? "" : sp().getString("seerrUrl", "").trim(); }
+    /** The API key (Seerr's Settings > General): given on the TV, never built in. Never logged. */
+    static String seerrKey() { return app == null ? "" : sp().getString("seerrKey", "").trim(); }
+
+    static void setSeerr(String url, String key) {
+        sp().edit().putString("seerrUrl", url).putString("seerrKey", key).commit();
+        version++;
+    }
+
     // MARK: - Shelf
 
     /** Packages on the home shelf, in order; null until the user edits it (then the built-in list applies). */

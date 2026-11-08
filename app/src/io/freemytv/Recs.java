@@ -1140,7 +1140,7 @@ final class Recs {
     }
 
     /** Language of titles and genres (TMDB's "fr-FR", "zh-CN"…); the services come from the region. */
-    private static String lang() {
+    static String lang() {
         String lang = Ui.language;
         if (lang.equals("en")) return "en-US";
         if (lang.equals("pt")) return "pt-BR";
@@ -1478,6 +1478,44 @@ final class Recs {
         } finally {
             c.disconnect();
         }
+    }
+
+    // MARK: - For Browse (BrowseActivity): TMDB, the TV's services, the ratings and the apps' links
+
+    /** TMDB's answer for a path (off the main thread), with the key given on the TV or built in. */
+    static JSONObject tmdb(String path) throws IOException, org.json.JSONException {
+        String key = key();
+        if (key.isEmpty()) throw new IOException("no TMDB key");
+        return request(path, key);
+    }
+
+    /**
+     * A TMDB watch provider as one of the TV's services: {match, key, package} and whether its app is on the TV (and
+     * switched on), or null when it is none we know.
+     */
+    String[] provider(String name, int providerId) {
+        String[] s = service(name, providerId);
+        if (s == null) return null;
+        return new String[] {s[0], s[1], s[2], installed(s[2]) ? "1" : ""};
+    }
+
+    /** The service's name for its key ("netflix" → "Netflix"). */
+    static String serviceLabel(String key) {
+        String name = SERVICE_NAME.get(key);
+        if (name != null) return name;
+        for (String[] s : byName) if (s[1].equals(key)) return s.length > 3 ? s[3] : key;
+        return key;
+    }
+
+    /** IMDb's and Rotten Tomatoes' ratings for p (p.imdbId), from OMDb or the week's saved copy; off the main thread. */
+    void ratings(Pick p) {
+        fetchRatings(p);
+    }
+
+    /** The title's own page in its app (Watchmode, with a key), or null for the app's home; off the main thread. */
+    String link(Pick p) {
+        findLink(p);
+        return p.link;
     }
 
     private JSONObject get(String path) throws IOException, org.json.JSONException {

@@ -176,6 +176,18 @@
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize|uiMode|density|fontScale|locale|layoutDirection"
             android:theme="@style/FreeMyTV.Home" />
 
+        <!-- Browse (the compass in the home screen's tab row): search, every movie and show, where each is on. -->
+        <activity
+            android:name=".BrowseActivity"
+            android:process=":home"
+            android:exported="false"
+            android:label="Free My TV"
+            android:excludeFromRecents="true"
+            android:screenOrientation="landscape"
+            android:windowSoftInputMode="adjustNothing|stateHidden"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize|uiMode|density|fontScale|locale|layoutDirection"
+            android:theme="@style/FreeMyTV.Home" />
+
         <!-- The quick settings panel the remote's Settings button opens in Free My TV mode (RemoteKeys), over what's
              playing: a window on the left of the screen, not the whole screen. -->
         <activity

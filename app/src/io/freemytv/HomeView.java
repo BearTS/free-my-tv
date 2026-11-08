@@ -133,7 +133,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     // The tab row: where the picks come from (0 Explore, 1 Jellyfin, only with a server set), then a filter (2 All,
     // 3 Movies, 4 Shows). The round buttons' indices start after them (T).
     private static final String[] FILTER_KIND = {null, "movie", "tv"};
-    private static final int T = 5, FILTERS = 2;
+    /** The tab row's slots: Browse's icon, the sources (Explore, Jellyfin) from SRC, the filters from FILTERS. */
+    private static final int T = 6, BROWSE = 0, SRC = 1, FILTERS = 3;
     private static final int Z_TOP = 4, Z_CARDS = 5, Z_WATCH = 6;
 
     private final Activity activity;
@@ -788,7 +789,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             pickIndex = 0;
             updatePicks();
         }
-        if (source != 0) selectTab(0);
+        if (source != 0) selectTab(SRC);
         if (filter != 0) selectTab(FILTERS);
         retarget(!animated);
         motionDirty = true;
@@ -812,7 +813,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     /** The tab names, made again only when the language changes (they are drawn on every frame). */
     private static String[] tabs() {
         if (tabsGeneration != Ui.generation) {
-            tabs = new String[] {Ui.tr("Explore"), "Jellyfin", Ui.tr("filter|All"), Ui.tr("Movies"), Ui.tr("Shows")};
+            tabs = new String[] {Ui.tr("Browse"), Ui.tr("Explore"), "Jellyfin", Ui.tr("filter|All"), Ui.tr("Movies"), Ui.tr("Shows")};
             tabsGeneration = Ui.generation;
         }
         return tabs;
@@ -3746,9 +3747,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             case Z_TOP:
                 if (reordering && reorderTop && i == topIndex) {
                     return Ui.trf("Moving {app}, position {n} of {total}",
-                            "app", label(lightButtons, i - 3), "n", i - 2, "total", lightButtons.size());
+                            "app", label(lightButtons, i - T), "n", i - T + 1, "total", lightButtons.size());
                 }
-                if (i >= 3) return label(lightButtons, i - 3);
+                if (i >= T) return label(lightButtons, i - T);
                 return Ui.trf("{name}, tab {i} of {n}", "name", tabs()[i], "i", i + 1, "n", T);
             case Z_CARDS: return i < cards.size() ? pickText(cards.get(i)) : "";
             case Z_WATCH:
@@ -3937,7 +3938,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 if (i >= T + lightButtons.size() || (i < T && (!picksMode() || !slotShown(i)))) return;
                 if (drawerOpen) closeDrawer();
                 topIndex = i;
-                if (i < 3) selectTab(i);
+                if (i > BROWSE && i <= FILTERS) selectTab(i);
                 break;
             case Z_CARDS:
                 if (i >= cards.size()) return;
@@ -4031,9 +4032,15 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (lTab == null) return;
         // "Top picks", then the text tabs as pills (18 px past the text).
         float pad = 18 * k, tabTop = L_TABBAR_TOP * k, tabBottom = (L_TABBAR_TOP + L_TABBAR_H) * k;
-        float x = MARGIN * k + lPicksLabel().measureText(Ui.tr("Top picks")) + 24 * k;
+        float x = MARGIN * k - pad;   // the first tab's text starts at the margin
         for (int i = 0; i < T; i++) {
-            if (i == 1 && !Jellyfin.configured()) {   // no Jellyfin server set: no Jellyfin tab
+            if (i == BROWSE) {   // Browse: a round icon before the tabs
+                topRects[i].set(x, tabTop, x + L_TABBAR_H * k, tabBottom);
+                snap(topRects[i]);
+                x = topRects[i].right + 8 * k;
+                continue;
+            }
+            if (!slotShown(i)) {   // no Jellyfin server set: no Jellyfin tab
                 topRects[i].setEmpty();
                 continue;
             }
@@ -4093,7 +4100,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             heroDirty = true;
             return;
         }
-        if (!slotShown(source)) {   // the Jellyfin tab went away (its settings were removed)
+        if (!slotShown(SRC + source)) {   // the Jellyfin tab went away (its settings were removed)
             source = 0;
             cardIndex = 0;
         }
@@ -4108,8 +4115,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         prefetchPicks();
         // The first three of the other tabs (what shows at first): switching tabs is quick, and the images stay under
         // Recs's cap in memory.
-        for (int t = 0; t < FILTERS; t++) {   // the other source with this filter
-            if (t == source || !slotShown(t)) continue;
+        for (int t = 0; t < FILTERS - SRC; t++) {   // the other source with this filter
+            if (t == source || !slotShown(SRC + t)) continue;
             List<Recs.Pick> other = picksFor(t, filter);
             for (int i = 0; i < Math.min(3, other.size()); i++) recs.backdrop(other.get(i));
         }
@@ -4740,7 +4747,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** Every slot of the tab row shows but Jellyfin's, which needs a server set. */
     private boolean slotShown(int i) {
-        return i != 1 || Jellyfin.configured();
+        return i != SRC + 1 || Jellyfin.configured();
     }
 
     /** What the row's endless loading asks Recs for: TMDB's kind (null = both), or Jellyfin's (never more). */
@@ -4765,8 +4772,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** Focusing a slot selects it: a source, or a filter. */
     private void selectTab(int index) {
-        if (index < FILTERS ? index == source : index - FILTERS == filter) return;
-        if (index < FILTERS) source = index;
+        if (index == BROWSE) {
+            openBrowse();
+            return;
+        }
+        if (index < FILTERS ? index - SRC == source : index - FILTERS == filter) return;
+        if (index < FILTERS) source = index - SRC;
         else filter = index - FILTERS;
         // A tab opens at its first pick, its row at the start: at once, as sliding back would first show the new
         // tab's cards scrolled to where the last tab was.
@@ -4776,6 +4787,50 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         updateCards();
         heroDirty = true;
     }
+
+    /** Browse: search and every movie and show, with where each is on (BrowseActivity). */
+    private void openBrowse() {
+        click.open();
+        try {
+            activity.startActivity(new android.content.Intent(activity, BrowseActivity.class));
+        } catch (RuntimeException e) {
+            AppLog.w("browse: " + e.getMessage());
+        }
+    }
+
+    /** Browse's slot: a compass in a circle, white with a shadow when focused like the tabs. */
+    private void drawBrowseIcon(Canvas c, RectF r, float focus) {
+        float s = 1 + 0.05f * focus, rad = r.width() / 2 * s, cx = r.centerX(), cy = r.centerY();
+        if (focus > 0.01f) {
+            tmp.set(cx - rad, cy - rad, cx + rad, cy + rad);
+            tmp.offset(0, 8 * k * focus);
+            shadow.setColor(Ui.alpha(0xFF000000, tone(0.22f, 0.4f) * focus));
+            shadows.draw(c, tmp, rad, SHADOW_BLUR * k, shadow);
+        }
+        fill.setShader(null);
+        fill.setColor(blend(tone(0x14000000, 0x1FFFFFFF), 0xFFFFFFFF, focus));
+        c.drawCircle(cx, cy, rad, fill);
+        int ink = blend(tone(L_INK, WHITE), L_INK, focus);
+        browseStroke.setColor(ink);
+        browseStroke.setStrokeWidth(2.2f * k);
+        float ring = rad * 0.5f;
+        c.drawCircle(cx, cy, ring, browseStroke);
+        float n = ring * 0.62f, w2 = ring * 0.26f;   // the needle, pointing up and to the right
+        browseNeedle.reset();
+        browseNeedle.moveTo(cx + n * 0.7071f, cy - n * 0.7071f);
+        browseNeedle.lineTo(cx + w2 * 0.7071f, cy + w2 * 0.7071f);
+        browseNeedle.lineTo(cx - n * 0.7071f, cy + n * 0.7071f);
+        browseNeedle.lineTo(cx - w2 * 0.7071f, cy - w2 * 0.7071f);
+        browseNeedle.close();
+        fill.setColor(ink);
+        c.drawPath(browseNeedle, fill);
+    }
+
+    private final Paint browseStroke = new Paint(Paint.ANTI_ALIAS_FLAG);
+    {
+        browseStroke.setStyle(Paint.Style.STROKE);
+    }
+    private final android.graphics.Path browseNeedle = new android.graphics.Path();
 
     /**
      * Background: the focused card's photo, heavily blurred and almost white; without it, a light gradient. At night,
@@ -4841,19 +4896,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         return hour >= 5 && hour < 12 ? Ui.tr("Good morning") : hour >= 12 && hour < 17 ? Ui.tr("Good afternoon") : Ui.tr("Good evening");
     }
 
-    private Paint picksLabel;
-
-    private Paint lPicksLabel() {
-        if (picksLabel == null || picksLabel.getTextSize() != 26 * k) picksLabel = Ui.text(Ui.semibold, 26 * k, WHITE);
-        return picksLabel;
-    }
-
     /** "Top picks" and its tabs, the focused pick's details, and the endless row of posters. */
     private void drawPicks(Canvas c) {
-        Paint label = lPicksLabel();
-        label.setColor(tone(L_INK, WHITE));
-        float tabCy = (L_TABBAR_TOP + L_TABBAR_H / 2) * k;
-        c.drawText(Ui.tr("Top picks"), MARGIN * k, tabCy + Ui.halfCap(label), label);
         // Text tabs: the selected one on a soft pill; with focus on the tabs it turns white with a shadow and grows a
         // little (the tvOS focus).
         // The filters' capsule, the selected one filled inside it (a segmented control, not more tabs).
@@ -4866,8 +4910,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         for (int i = 0; i < T; i++) {
             if (!slotShown(i)) continue;
             RectF r = topRects[i];
-            boolean selected = i == source || i == filter + FILTERS;
+            boolean selected = i == SRC + source || i == filter + FILTERS;
             float focus = Ui.clamp(topFocus[i].value);
+            if (i == BROWSE) {
+                drawBrowseIcon(c, r, focus);
+                continue;
+            }
             if (selected || focus > 0.01f) {
                 float s = 1 + 0.05f * focus;
                 cell.set(r.centerX() - r.width() * s / 2, r.centerY() - r.height() * s / 2,
@@ -5304,7 +5352,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                     cardIndex = nearest(cardRects, cards.size(), shelf.isEmpty() ? w / 2f : tileRects[shelfIndex].centerX());
                 } else if (picksMode() || !lightButtons.isEmpty()) {
                     zone = Z_TOP;
-                    topIndex = picksMode() ? source : T;
+                    topIndex = picksMode() ? SRC + source : T;
                 } else {
                     return true;
                 }
@@ -5317,7 +5365,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                     prefetchPicks();
                 } else if (dy < 0) {
                     zone = Z_TOP;
-                    topIndex = source;     // as on Apple TV: moving up to the tabs focuses the selected one
+                    topIndex = SRC + source;     // as on Apple TV: moving up to the tabs focuses the selected one
                 } else {
                     zone = Z_SHELF;
                     if (!shelf.isEmpty()) shelfIndex = nearest(tileRects, tileRects.length, cardRects[cardIndex].centerX());

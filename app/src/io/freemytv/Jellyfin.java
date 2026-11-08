@@ -302,6 +302,62 @@ final class Jellyfin {
         });
     }
 
+    // MARK: - For Browse: which TMDB titles are on the server
+
+    private volatile Map<String, String[]> index = new HashMap<>();
+    private volatile long indexedAt;
+
+    /**
+     * Every movie and show on the server by its TMDB id ("movie:603", "tv:1399") and IMDb id ("tt0133093"), as
+     * {item id, type, where you stopped in ms, "1" when watched, its length in ms}: read at most every few minutes, off the main thread.
+     */
+    Map<String, String[]> index() {
+        if (!configured()) return new HashMap<>();
+        if (System.currentTimeMillis() - indexedAt < FRESH_MS) return index;
+        try {
+            Map<String, String[]> out = new HashMap<>();
+            JSONArray items = get("/Users/" + user() + "/Items?Recursive=true&IncludeItemTypes=Movie,Series&Fields=ProviderIds"
+                    + "&EnableImages=false&EnableUserData=true").optJSONArray("Items");
+            for (int i = 0; items != null && i < items.length(); i++) {
+                JSONObject o = items.getJSONObject(i);
+                JSONObject ids = o.optJSONObject("ProviderIds");
+                if (ids == null) continue;
+                String type = o.optString("Type");
+                JSONObject data = o.optJSONObject("UserData");
+                long at = data == null ? 0 : data.optLong("PlaybackPositionTicks") / 10_000;
+                boolean played = data != null && data.optBoolean("Played");
+                String[] item = {o.getString("Id"), type, String.valueOf(at), played ? "1" : "", String.valueOf(o.optLong("RunTimeTicks") / 10_000)};
+                String tmdb = ids.optString("Tmdb", ""), imdb = ids.optString("Imdb", "");
+                if (!tmdb.isEmpty()) out.put(("Series".equals(type) ? "tv:" : "movie:") + tmdb, item);
+                if (imdb.startsWith("tt")) out.put(imdb, item);
+            }
+            index = out;
+            indexedAt = System.currentTimeMillis();
+        } catch (Exception e) {
+            AppLog.w("jellyfin index: " + e.getMessage());
+            indexedAt = System.currentTimeMillis() - FRESH_MS + 30_000;   // not again for half a minute
+        }
+        return index;
+    }
+
+    /** The item for a TMDB title ("movie" or "tv" and its id, or its IMDb id), or null; from the last index read. */
+    String[] find(String kind, long tmdbId, String imdbId) {
+        Map<String, String[]> map = index;
+        String[] it = map.get(("tv".equals(kind) ? "tv:" : "movie:") + tmdbId);
+        if (it == null && imdbId != null && !imdbId.isEmpty()) it = map.get(imdbId);
+        return it;
+    }
+
+    /** Plays (or opens the page of) a server item found with find(): as OK on a Jellyfin card does. */
+    void play(Activity a, String[] item, int how, Runnable failed) {
+        Recs.Pick p = new Recs.Pick();
+        p.kind = KIND;
+        p.link = item[0];
+        p.type = item[1];
+        open(a, p, how, failed);
+        indexedAt = 0;   // coming back, where you stopped is read again
+    }
+
     // MARK: - Checking the settings
 
     /** Whether the address, user and key work together (off the main thread): null if they do, else why not. */
