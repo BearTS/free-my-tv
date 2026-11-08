@@ -162,6 +162,19 @@ final class Jellyfin {
         if (type.equals("Episode") && !seriesId.isEmpty() && !series.add(seriesId)) return;
         if (type.equals("Series") && series.contains(id)) return;   // its next episode is already there
         if (!type.equals("Movie") && !type.equals("Series") && !type.equals("Episode") && !type.equals("Video")) return;
+        JSONObject user = o.optJSONObject("UserData");
+        // Lately added, only what's still to watch: not a movie you've seen, nor a show you've finished (one under way is
+        // in Up next).
+        if (!progress && user != null && (user.optBoolean("Played") || type.equals("Series") && user.has("UnplayedItemCount")
+                && user.optInt("UnplayedItemCount") == 0)) return;
+        // The same title twice (two copies, or in two libraries): once, the first (what you're watching wins).
+        if (!type.equals("Episode")) {
+            JSONObject ids = o.optJSONObject("ProviderIds");
+            String same = ids != null && !ids.optString("Tmdb", "").isEmpty() ? "tmdb:" + type + ids.optString("Tmdb")
+                    : ids != null && !ids.optString("Imdb", "").isEmpty() ? "imdb:" + ids.optString("Imdb")
+                    : "name:" + type + o.optString("Name").toLowerCase(java.util.Locale.ROOT) + o.optInt("ProductionYear");
+            if (!seen.add(same)) return;
+        }
         Recs.Pick p = new Recs.Pick();
         p.kind = KIND;
         p.id = -Math.abs((id.hashCode() & 0x3fffffff) + 1);   // never TMDB's: no details to fetch
