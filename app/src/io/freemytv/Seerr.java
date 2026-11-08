@@ -154,6 +154,12 @@ final class Seerr {
 
     // MARK: - Checking the settings
 
+    /** The pasted key without spaces, or "" if it can't be one: Seerr's is base64 (about 68 characters, "=" at the end). */
+    static String cleanKey(String pasted) {
+        String key = pasted == null ? "" : pasted.replaceAll("\\s+", "");
+        return key.matches("[A-Za-z0-9+/=_-]{16,200}") ? key : "";
+    }
+
     /** Whether the address and key work (off the main thread): null if they do, else why not. */
     static String check(String url, String key) {
         try {

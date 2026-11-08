@@ -1814,7 +1814,7 @@ public class SettingsActivity extends Activity {
         private String saveSeerr(String lines) {
             String[] parts = lines.split("\n", -1);
             String url = parts.length > 0 ? Jellyfin.trim(parts[0]) : "";
-            String key = parts.length > 1 ? Recs.cleanOmdbKey(parts[1]) : "";
+            String key = parts.length > 1 ? Seerr.cleanKey(parts[1]) : "";
             String why = !url.startsWith("http://") && !url.startsWith("https://") ? Ui.tr("The address starts with https:// (or http:// at home).")
                     : key.isEmpty() ? Ui.tr("That doesn't look like a Seerr API key.")
                     : Seerr.check(url, key);
