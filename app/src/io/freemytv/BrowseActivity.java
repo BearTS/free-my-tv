@@ -671,7 +671,7 @@ public class BrowseActivity extends Activity {
         }
         TitlePage page = new TitlePage(it);
         push(page.screen, null);
-        page.load();
+        page.fetch();
     }
 
     private final class TitlePage {
@@ -774,7 +774,7 @@ public class BrowseActivity extends Activity {
             screen.resumed = this::refreshPlace;
         }
 
-        void load() {
+        void fetch() {
             io.execute(() -> {
                 try {
                     Browse.Title got = Browse.title(this0(), item.kind, item.id);
