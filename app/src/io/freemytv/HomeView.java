@@ -133,7 +133,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     // The tab row: where the picks come from (0 Explore, 1 Jellyfin, only with a server set), then a filter (2 All,
     // 3 Movies, 4 Shows). The round buttons' indices start after them (T).
     private static final String[] FILTER_KIND = {null, "movie", "tv"};
-    private static final int T = 6, FILTERS = 2, REFRESH = 5;
+    private static final int T = 5, FILTERS = 2;
     private static final int Z_TOP = 4, Z_CARDS = 5, Z_WATCH = 6;
 
     private final Activity activity;
@@ -812,7 +812,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     /** The tab names, made again only when the language changes (they are drawn on every frame). */
     private static String[] tabs() {
         if (tabsGeneration != Ui.generation) {
-            tabs = new String[] {Ui.tr("Explore"), "Jellyfin", Ui.tr("filter|All"), Ui.tr("Movies"), Ui.tr("Shows"), Ui.tr("Refresh")};
+            tabs = new String[] {Ui.tr("Explore"), "Jellyfin", Ui.tr("filter|All"), Ui.tr("Movies"), Ui.tr("Shows")};
             tabsGeneration = Ui.generation;
         }
         return tabs;
@@ -3328,12 +3328,6 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             it = drawerItems.get(drawerIndex);
             r = drawerRects[drawerIndex];
         } else if (zone == Z_TOP) {
-            if (topIndex == REFRESH) {   // Explore's titles fetched again from TMDB
-                click.open();
-                recs.refreshNow();
-                showToast(Ui.tr("Fetching new picks…"));
-                return;
-            }
             if (topIndex < T) {
                 selectTab(topIndex);
                 return;
@@ -4043,13 +4037,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 topRects[i].setEmpty();
                 continue;
             }
-            boolean segment = i >= FILTERS && i < REFRESH;
+            boolean segment = i >= FILTERS;
             if (i == FILTERS) {   // the filters: segments of one capsule
                 x += 24 * k;
                 segRect.set(x, tabTop, x, tabBottom);
                 x += 4 * k;
-            } else if (i == REFRESH) {
-                x = segRect.right + 20 * k;
             }
             float tw = Math.max(lTabOn.measureText(tabs()[i]), lTab.measureText(tabs()[i]));
             float inset = segment ? 4 * k : 0;
@@ -4746,9 +4738,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         c.restore();
     }
 
-    /** Every slot of the tab row shows but Jellyfin's, which needs a server set, and Refresh, which is Explore's. */
+    /** Every slot of the tab row shows but Jellyfin's, which needs a server set. */
     private boolean slotShown(int i) {
-        return i == 1 ? Jellyfin.configured() : i != REFRESH || source == 0;
+        return i != 1 || Jellyfin.configured();
     }
 
     /** What the row's endless loading asks Recs for: TMDB's kind (null = both), or Jellyfin's (never more). */
@@ -4773,7 +4765,6 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** Focusing a slot selects it: a source, or a filter. */
     private void selectTab(int index) {
-        if (index == REFRESH) return;   // a button: OK refreshes
         if (index < FILTERS ? index == source : index - FILTERS == filter) return;
         if (index < FILTERS) source = index;
         else filter = index - FILTERS;
@@ -4877,11 +4868,6 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             RectF r = topRects[i];
             boolean selected = i == source || i == filter + FILTERS;
             float focus = Ui.clamp(topFocus[i].value);
-            if (i == REFRESH && focus <= 0.01f) {   // an outlined button until it has the focus
-                float rr = r.height() / 2;
-                border.setColor(tone(0x33000000, 0x40FFFFFF));
-                c.drawRoundRect(r, rr, rr, border);
-            }
             if (selected || focus > 0.01f) {
                 float s = 1 + 0.05f * focus;
                 cell.set(r.centerX() - r.width() * s / 2, r.centerY() - r.height() * s / 2,
@@ -4894,7 +4880,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                     shadows.draw(c, tmp, rr, SHADOW_BLUR * k, shadow);
                 }
                 fill.setShader(null);
-                int rest = i >= FILTERS && i < REFRESH ? tone(0x1F000000, 0x3DFFFFFF) : tone(0x14000000, 0x1FFFFFFF);
+                int rest = i >= FILTERS ? tone(0x1F000000, 0x3DFFFFFF) : tone(0x14000000, 0x1FFFFFFF);
                 fill.setColor(blend(rest, 0xFFFFFFFF, focus));
                 c.drawRoundRect(cell, rr, rr, fill);
             }
@@ -5246,9 +5232,15 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         HomeData.Weather wx = data.weather;
         if (Prefs.weather() && !Double.isNaN(wx.temp)) {
             String symbol = Symbols.weather(wx.code, wx.isDay);
-            x -= 28 * k + lInfo.measureText(HomeData.degrees(wx.temp)) + 10 * k + Symbols.width(getContext(), symbol, 30 * k);
+            x -= 28 * k + lInfo.measureText(weatherText(wx)) + 10 * k + Symbols.width(getContext(), symbol, 30 * k);
         }
         return x;
+    }
+
+    /** "19° Bengaluru": the temperature and the city it's for. */
+    private static String weatherText(HomeData.Weather wx) {
+        String city = Prefs.city();
+        return HomeData.degrees(wx.temp) + (city.isEmpty() ? "" : " " + city);
     }
 
     private void drawHeaderInfo(Canvas c) {
@@ -5258,7 +5250,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         c.drawText(clockText, right - tw, cy + Ui.halfCap(lHeaderTime), lHeaderTime);
         HomeData.Weather wx = data.weather;
         if (!Prefs.weather() || Double.isNaN(wx.temp)) return;
-        String temp = HomeData.degrees(wx.temp), symbol = Symbols.weather(wx.code, wx.isDay);
+        String temp = weatherText(wx), symbol = Symbols.weather(wx.code, wx.isDay);
         float x = right - tw - 28 * k - lInfo.measureText(temp);
         c.drawText(temp, x, cy + Ui.halfCap(lInfo), lInfo);
         float sw = Symbols.width(getContext(), symbol, 30 * k);

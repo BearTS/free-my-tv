@@ -660,13 +660,6 @@ final class Recs {
         return new File(new File(context.getCacheDir(), "recs"), p.backdrop.replace("/", ""));
     }
 
-    /** Explore's Refresh: the list fetched again now, whatever its age (not while a fetch is already under way). */
-    void refreshNow() {
-        listAt = 0;
-        failedAt = 0;
-        refreshIfStale();
-    }
-
     /** With a key: fetches the list if stale or the time of day (morning/afternoon/night) changed; then the details. */
     void refreshIfStale() {
         if (!hasKey(context) || fetching) return;
