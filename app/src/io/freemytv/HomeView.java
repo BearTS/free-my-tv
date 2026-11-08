@@ -4865,7 +4865,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     // The details panel's texts, laid out once per pick (and again when its details or ratings arrive).
     private String detailKey;
-    private String detailEyebrow, detailMeta, detailWatch, detailHint;
+    private String detailEyebrow, detailMeta, detailWatch;
     private StaticLayout detailTitle, detailBody;
     private final List<String[]> detailRatings = new ArrayList<>();   // {kind, value}: "tmdb", "imdb", "rt"
 
@@ -4884,7 +4884,6 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         // Room left of the ratings, which share its line.
         detailMeta = TextUtils.ellipsize(meta, new TextPaint(lDetailMeta), width - 260 * k, TextUtils.TruncateAt.END).toString();
         detailWatch = Jellyfin.KIND.equals(p.kind) && p.inProgress ? Ui.tr("Continue watching") : Ui.tr("Watch now");
-        detailHint = Jellyfin.KIND.equals(p.kind) ? Ui.tr("Hold OK for more") : null;
         String title = p.title == null ? "" : p.title;
         detailTitle = StaticLayout.Builder.obtain(title, 0, title.length(), lDetailTitle, width).setMaxLines(2)
                 .setEllipsize(TextUtils.TruncateAt.END).setLineSpacing(0, 0.95f).setIncludePad(false).build();
@@ -4974,10 +4973,6 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         c.drawPath(playIcon, fill);
         lWatch.setColor(ink);
         c.drawText(detailWatch, ix + icon + 12 * k, icy + Ui.halfCap(lWatch), lWatch);
-        if (detailHint != null && focused) {   // the menu: continue, start over, its page
-            lDetailMeta.setColor(Ui.alpha(0xFFA3A8B2, a));
-            c.drawText(detailHint, tmp.right + 22 * k, icy + Ui.halfCap(lDetailMeta), lDetailMeta);
-        }
     }
 
     private LinearGradient cardShade;
