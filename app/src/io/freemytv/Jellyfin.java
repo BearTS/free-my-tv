@@ -218,7 +218,9 @@ final class Jellyfin {
         }
         if (!type.equals("Series") && length > 0) parts.add(minutes(length / 60_000));
         p.meta = String.join(" · ", parts);
-        if (progress && position > 0 && length > position) {
+        p.inProgress = progress;
+        p.resume = progress && position > 0 && length > position ? position : 0;
+        if (p.resume > 0) {
             p.tag = Ui.trf("Continue · {time} left", "time", minutes(Math.max(1, (length - position) / 60_000)));
         } else if (progress && episode) {
             p.tag = Ui.tr("Up next");
@@ -251,8 +253,16 @@ final class Jellyfin {
      * unwatched episode (the first one if none was watched), and anything half-watched from where you stopped, asked
      * of the server now. If the server can't be reached, Wholphin opens the title as it was listed.
      */
+    static final int RESUME = 0, FROM_START = 1, DETAILS = 2;
+
+    /** OK on a Jellyfin title: plays it (from where you stopped), or opens its page (Home Settings' Watch now). */
     void open(Activity a, Recs.Pick p, Runnable failed) {
-        boolean play = Prefs.jellyfinPlay();
+        open(a, p, Prefs.jellyfinPlay() ? RESUME : DETAILS, failed);
+    }
+
+    /** Plays it from where you stopped, plays it from the start, or opens its page in Wholphin (DETAILS). */
+    void open(Activity a, Recs.Pick p, int how, Runnable failed) {
+        boolean play = how != DETAILS, fromStart = how == FROM_START;
         io.execute(() -> {
             String id = p.link;
             long position = 0;
@@ -265,9 +275,11 @@ final class Jellyfin {
                     }
                     if (next != null && next.length() > 0) id = next.getJSONObject(0).getString("Id");
                 }
-                JSONObject item = get("/Users/" + uid + "/Items/" + id);
-                JSONObject data = item.optJSONObject("UserData");
-                if (data != null && !data.optBoolean("Played")) position = data.optLong("PlaybackPositionTicks") / 10_000;
+                if (play && !fromStart) {   // Wholphin starts at 0 without a position
+                    JSONObject item = get("/Users/" + uid + "/Items/" + id);
+                    JSONObject data = item.optJSONObject("UserData");
+                    if (data != null && !data.optBoolean("Played")) position = data.optLong("PlaybackPositionTicks") / 10_000;
+                }
             } catch (Exception e) {
                 AppLog.w("jellyfin open: " + e.getMessage());
             }

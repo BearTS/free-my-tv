@@ -3849,6 +3849,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             return !reordering && !menuOpen && !sheetOpen && shelf.size() > 1 && i < shelf.size()
                     && shelf.get(i).kind == HomeApps.APP && shelf.get(i).pkg != null;
         }
+        if (group == Z_CARDS) return !menuOpen && i < cards.size() && Jellyfin.KIND.equals(cards.get(i).kind);
         return group == Z_WATCH && !menuOpen && watchShown() && i < watching.size();
     }
 
@@ -4517,21 +4518,38 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     // MARK: - Continue Watching: the menu of a held card
 
     private boolean canHold() {
-        return zone == Z_WATCH && !sheetOpen && !drawerOpen && watchShown() && watchIndex < watching.size();
+        if (sheetOpen || drawerOpen) return false;
+        if (zone == Z_CARDS) return cardIndex < cards.size() && Jellyfin.KIND.equals(cards.get(cardIndex).kind);
+        return zone == Z_WATCH && watchShown() && watchIndex < watching.size();
     }
+
+    private Recs.Pick menuJellyfin;   // the menu is a Jellyfin title's (else menuItem's, Continue Watching's)
 
     /** The focused card's menu (held OK, or TalkBack's long click). */
     private void showMenu() {
         if (menuOpen || !canHold() || menuTitlePaint == null) return;
-        menuItem = watching.get(watchIndex);
         float width = (MENU_W - 2 * MENU_PAD) * k;
-        String title = menuItem.title + (menuItem.episode != null ? " · " + menuItem.episode : "");
-        menuTitle = TextUtils.ellipsize(title, new TextPaint(menuTitlePaint), width, TextUtils.TruncateAt.END).toString();
-        menuSub = menuItem.app == null ? "" : TextUtils.ellipsize(menuItem.app, new TextPaint(menuSubPaint), width,
-                TextUtils.TruncateAt.END).toString();
-        menuOptions[0] = Ui.tr("Hide from Continue Watching");
-        menuOptions[1] = Ui.tr("Open the app");
-        menuOptions[2] = Ui.tr("Cancel");
+        if (zone == Z_CARDS) {   // a Jellyfin title: continue, start over or its page in Wholphin
+            menuJellyfin = cards.get(cardIndex);
+            menuItem = null;
+            menuTitle = TextUtils.ellipsize(menuJellyfin.title, new TextPaint(menuTitlePaint), width, TextUtils.TruncateAt.END).toString();
+            String sub = menuJellyfin.tag != null ? menuJellyfin.tag : "Jellyfin";
+            menuSub = TextUtils.ellipsize(sub, new TextPaint(menuSubPaint), width, TextUtils.TruncateAt.END).toString();
+            boolean started = menuJellyfin.resume > 0;
+            menuOptions[0] = menuJellyfin.inProgress ? Ui.tr("Continue watching") : Ui.tr("Watch now");
+            menuOptions[1] = started ? Ui.tr("Play from start") : Ui.tr("Show details");
+            menuOptions[2] = started ? Ui.tr("Show details") : Ui.tr("Cancel");
+        } else {
+            menuJellyfin = null;
+            menuItem = watching.get(watchIndex);
+            String title = menuItem.title + (menuItem.episode != null ? " · " + menuItem.episode : "");
+            menuTitle = TextUtils.ellipsize(title, new TextPaint(menuTitlePaint), width, TextUtils.TruncateAt.END).toString();
+            menuSub = menuItem.app == null ? "" : TextUtils.ellipsize(menuItem.app, new TextPaint(menuSubPaint), width,
+                    TextUtils.TruncateAt.END).toString();
+            menuOptions[0] = Ui.tr("Hide from Continue Watching");
+            menuOptions[1] = Ui.tr("Open the app");
+            menuOptions[2] = Ui.tr("Cancel");
+        }
         layoutMenu();
         menuOpen = true;
         menuIndex = 0;
@@ -4622,8 +4640,21 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     private void pickMenu() {
         WatchNext.Item it = menuItem;
+        Recs.Pick jf = menuJellyfin;
         int choice = menuIndex;
         closeMenu(false);
+        if (jf != null) {
+            boolean started = jf.resume > 0;
+            int how = choice == 0 ? Jellyfin.RESUME : started && choice == 1 ? Jellyfin.FROM_START
+                    : started && choice == 2 || !started && choice == 1 ? Jellyfin.DETAILS : -1;
+            if (how < 0) {
+                click.move();
+                return;
+            }
+            click.open();
+            Jellyfin.get(getContext()).open(activity, jf, how, () -> showToast(Ui.tr("Install Wholphin to play your Jellyfin titles.")));
+            return;
+        }
         if (it == null) return;
         if (choice == 0) {
             click.open();
@@ -4690,7 +4721,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         for (int i = 0; i < menuOptions.length; i++) {
             menuRow(i, tmp);
             float f = Ui.clamp(1 - Math.abs(pick - i));
-            int base = i == 0 ? tone(0xFFD70015, 0xFFFF6961) : ink;   // hiding is the destructive one: red
+            int base = i == 0 && menuJellyfin == null ? tone(0xFFD70015, 0xFFFF6961) : ink;   // hiding is the destructive one: red
             menuOptionPaint.setColor(Ui.alpha(blend(base, onPill, f), a));
             c.drawText(menuOptions[i], tmp.left + 28 * k, tmp.centerY() + Ui.halfCap(menuOptionPaint), menuOptionPaint);
         }
@@ -4834,7 +4865,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     // The details panel's texts, laid out once per pick (and again when its details or ratings arrive).
     private String detailKey;
-    private String detailEyebrow, detailMeta, detailWatch;
+    private String detailEyebrow, detailMeta, detailWatch, detailHint;
     private StaticLayout detailTitle, detailBody;
     private final List<String[]> detailRatings = new ArrayList<>();   // {kind, value}: "tmdb", "imdb", "rt"
 
@@ -4852,7 +4883,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         int width = Math.max(1, Math.round(PANEL_W * k));
         // Room left of the ratings, which share its line.
         detailMeta = TextUtils.ellipsize(meta, new TextPaint(lDetailMeta), width - 260 * k, TextUtils.TruncateAt.END).toString();
-        detailWatch = Ui.tr("Watch now");
+        detailWatch = Jellyfin.KIND.equals(p.kind) && p.inProgress ? Ui.tr("Continue watching") : Ui.tr("Watch now");
+        detailHint = Jellyfin.KIND.equals(p.kind) ? Ui.tr("Hold OK for more") : null;
         String title = p.title == null ? "" : p.title;
         detailTitle = StaticLayout.Builder.obtain(title, 0, title.length(), lDetailTitle, width).setMaxLines(2)
                 .setEllipsize(TextUtils.TruncateAt.END).setLineSpacing(0, 0.95f).setIncludePad(false).build();
@@ -4942,6 +4974,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         c.drawPath(playIcon, fill);
         lWatch.setColor(ink);
         c.drawText(detailWatch, ix + icon + 12 * k, icy + Ui.halfCap(lWatch), lWatch);
+        if (detailHint != null && focused) {   // the menu: continue, start over, its page
+            lDetailMeta.setColor(Ui.alpha(0xFFA3A8B2, a));
+            c.drawText(detailHint, tmp.right + 22 * k, icy + Ui.halfCap(lDetailMeta), lDetailMeta);
+        }
     }
 
     private LinearGradient cardShade;

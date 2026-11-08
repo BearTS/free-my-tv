@@ -64,6 +64,8 @@ final class Recs {
         String imdbRating, rtRating;   // "8.1" and "92%" from OMDb (omdb_key), or null
         boolean ratingsTried;   // OMDb asked once for this title
         String type;            // a Jellyfin title's type: Movie, Series, Episode (link holds its id)
+        boolean inProgress;     // a Jellyfin title you're in the middle of (or a show's next episode)
+        long resume;            // where you stopped in it, in ms (0: not started)
     }
 
     interface Listener { void onRecs(); }
