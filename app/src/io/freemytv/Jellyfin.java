@@ -197,8 +197,8 @@ final class Jellyfin {
             if (genres != null && genres.length() > 0) parts.add(genres.optString(0));
             int year = o.optInt("ProductionYear");
             if (year > 0) parts.add(String.valueOf(year));
-            String rated = o.optString("OfficialRating", "");
-            if (!rated.isEmpty()) parts.add(rated);
+            String age = o.optString("OfficialRating", "");
+            if (!age.isEmpty()) parts.add(age);
         }
         if (!type.equals("Series") && length > 0) parts.add(minutes(length / 60_000));
         p.meta = String.join(" · ", parts);
