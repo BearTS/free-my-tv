@@ -35,6 +35,8 @@ import java.util.concurrent.Executors;
 final class Jellyfin {
     static final String KIND = "jf";
     static final String WHOLPHIN = "com.github.damontecres.wholphin";
+    /** Wholphin FMTV: the fork in Free My TV's look (BearTS/Wholphin), its own package beside Wholphin. */
+    static final String WHOLPHIN_FMTV = WHOLPHIN + ".fmtv";
     private static final String PLAYBACK = WHOLPHIN + ".PLAYBACK";
     private static final long FRESH_MS = 5 * 60_000L;
     private static final int UP_NEXT = 20, PER_LIBRARY = 16;
@@ -184,7 +186,7 @@ final class Jellyfin {
         p.link = id;
         p.type = type;
         p.app = "jellyfin";
-        p.pkg = WHOLPHIN;
+        p.pkg = wholphin(context);
         p.detailed = true;
         p.overview = o.optString("Overview", "");
         boolean episode = type.equals("Episode");
@@ -287,7 +289,7 @@ final class Jellyfin {
             final long at = position;
             main.post(() -> {
                 Intent intent = new Intent(play ? PLAYBACK : Intent.ACTION_VIEW)
-                        .setComponent(new ComponentName(WHOLPHIN, WHOLPHIN + ".MainActivity"))
+                        .setComponent(new ComponentName(wholphin(a), WHOLPHIN + ".MainActivity"))
                         .putExtra("itemId", itemId)
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 if (play && at > 0) intent.putExtra("position", at);
@@ -356,6 +358,16 @@ final class Jellyfin {
         p.type = item[1];
         open(a, p, how, failed);
         indexedAt = 0;   // coming back, where you stopped is read again
+    }
+
+    /** The Wholphin that plays: Wholphin FMTV when it's on the TV, else Wholphin itself. */
+    static String wholphin(Context c) {
+        try {
+            c.getPackageManager().getPackageInfo(WHOLPHIN_FMTV, 0);
+            return WHOLPHIN_FMTV;
+        } catch (android.content.pm.PackageManager.NameNotFoundException e) {
+            return WHOLPHIN;
+        }
     }
 
     // MARK: - Checking the settings
